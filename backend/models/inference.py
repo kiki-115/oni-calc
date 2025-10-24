@@ -6,21 +6,7 @@ import torch.nn as nn
 from PIL import Image, ImageOps
 import numpy as np
 import cv2
-
-class MyModel(nn.Module):
-    def __init__(self, input_size):
-        super(MyModel, self).__init__()
-        self.size = input_size * input_size
-        self.fc1 = nn.Linear(self.size, 1024)
-        self.fc2 = nn.Linear(1024, 256)
-        self.fc3 = nn.Linear(256, 10)
-
-    def forward(self, x):
-        x = x.view(-1, self.size)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+from .model import MyModel
 
 def load_model(model_path: str, device: torch.device, input_size: int | None = None):
     """
