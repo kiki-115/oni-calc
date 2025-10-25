@@ -1,9 +1,13 @@
-.App {
+/* === 統合版 App.css (Ant Design + 元の装飾) === */
+
+.app-wrap {
+  min-height: 100vh;
+  background: #0f172a;
   text-align: center;
 }
 
 .App-header {
-  background-color: #282c34;
+  background-color: #0b1220;
   padding: 20px;
   color: white;
   min-height: 100vh;
@@ -14,11 +18,19 @@
   font-size: 18px;
 }
 
+.board {
+  background: #0b1220;
+  border-radius: 16px;
+  padding: 16px;
+}
+
 .problem {
   margin: 20px 0;
   padding: 20px;
-  background-color: #444;
+  background-color: #1e293b;
   border-radius: 10px;
+  font-size: 24px;
+  color: #fff;
 }
 
 .problem h2 {
@@ -30,6 +42,21 @@
   margin: 20px 0;
   display: flex;
   justify-content: center;
+}
+
+.pad {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  width: 300px;
+  height: 300px;
+  /* アスペクト比を強制 */
+  aspect-ratio: 1;
+  /* サイズを固定 */
+  min-width: 300px;
+  min-height: 300px;
+  max-width: 300px;
+  max-height: 300px;
 }
 
 .controls {
@@ -51,7 +78,7 @@
   background-color: #21a0c4;
 }
 
-input[type="number"] {
+input[type='number'] {
   margin: 0 10px;
   padding: 5px;
   font-size: 16px;
@@ -70,4 +97,31 @@ button {
 
 button:hover {
   background-color: #21a0c4;
+}
+
+/* Ant Design統合: タイトルや統計の配色補正 */
+.ant-statistic-title {
+  color: #9ca3af !important;
+}
+
+.ant-statistic-content-value {
+  color: #f0f9ff !important;
+}
+
+.ant-card {
+  background-color: #111827 !important;
+  border-radius: 16px !important;
+}
+
+.ant-divider {
+  border-color: #1f2937 !important;
+}
+
+.ant-layout-header {
+  background: #0b1220 !important;
+}
+
+.ant-tag {
+  font-size: 16px;
+  border-radius: 999px;
 }

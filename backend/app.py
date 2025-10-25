@@ -120,8 +120,9 @@ async def recognize_digit(file: UploadFile = File(...)):
             
         finally:
             # 一時ファイルを削除
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+            # if os.path.exists(temp_path):
+            #     os.remove(temp_path)
+            pass
                 
     except Exception as e:
         print(f"認識エラー: {e}")

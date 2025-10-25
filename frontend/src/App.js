@@ -1,262 +1,313 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
+import {
+  Layout, Row, Col, Card, Space, Typography,
+  Button, Statistic, Tag, InputNumber, Divider,
+  App as AntdApp,
+} from 'antd';
+import { SendOutlined, DeleteOutlined, RedoOutlined } from '@ant-design/icons';
 
-function App() {
+const { Header, Content } = Layout;
+const { Title, Text } = Typography;
+
+/** 0–9 に収まる一桁演算のみ生成（＋は a+b<=9、−は a>=b） */
+function generateProblem() {
+  const op = Math.random() < 0.5 ? '+' : '-';
+  while (true) {
+    const a = Math.floor(Math.random() * 10); // 0..9
+    const b = Math.floor(Math.random() * 10);
+    if (op === '+') {
+      if (a + b <= 9) return { num1: a, num2: b, operation: '+', answer: a + b };
+    } else {
+      if (a - b >= 0) return { num1: a, num2: b, operation: '-', answer: a - b };
+    }
+  }
+}
+
+export default function App() {
+  // AntD v5: messageはAppコンテキストから取得
+  const { message } = AntdApp.useApp();
+
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentProblem, setCurrentProblem] = useState(null);
-  const [memoryAnswers, setMemoryAnswers] = useState([]);
+  const [memoryAnswers, setMemoryAnswers] = useState([]); // 末尾が最新
   const [score, setScore] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
-  const [n, setN] = useState(3); // n個前の問題の答えを記憶
+  const [n, setN] = useState(3);
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 
-  // 問題生成
-  const generateProblem = () => {
-    const operations = ['+', '-'];
-    const operation = operations[Math.floor(Math.random() * operations.length)];
-    
-    let num1, num2, answer;
-    if (operation === '+') {
-      num1 = Math.floor(Math.random() * 9) + 1;
-      num2 = Math.floor(Math.random() * (9 - num1)) + 1;
-      answer = num1 + num2;
-    } else {
-      num1 = Math.floor(Math.random() * 9) + 1;
-      num2 = Math.floor(Math.random() * num1) + 1;
-      answer = num1 - num2;
-    }
-    
-    return { num1, num2, operation, answer };
-  };
-
-  // ゲーム開始
+  /** ゲーム開始 */
   const startGame = () => {
+    const p = generateProblem();
     setGameStarted(true);
-    setCurrentProblem(generateProblem());
-    setMemoryAnswers([]);
+    setCurrentProblem(p);
+    setMemoryAnswers([]);        // 最初は覚えるだけ
     setScore(0);
+    
+    // Canvas初期化
+    setTimeout(() => {
+      if (!canvasRef.current) {
+        console.error('Canvas ref is null');
+        return;
+      }
+      
+      const canvas = canvasRef.current;
+      const cssW = 300, cssH = 300;
+      canvas.width = Math.floor(cssW * dpr);   // 内部ピクセル
+      canvas.height = Math.floor(cssH * dpr);
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      console.log('Canvas initialized:', {
+        width: canvas.width,
+        height: canvas.height,
+        aspectRatio: canvas.width / canvas.height
+      });
+    }, 100);
   };
 
-  // Canvas描画開始
+  /** CSS座標 → 内部ピクセル座標に変換 */
+  const getCanvasPoint = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  /** Canvas描画（Pointer Events） */
   const startDrawing = (e) => {
+    e.preventDefault();
     if (!canvasRef.current) return;
     setIsDrawing(true);
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    
-    // 描画設定
-    ctx.lineWidth = 3;
+
+    ctx.lineWidth = 10 * dpr;     // DPI対応
     ctx.lineCap = 'round';
-    ctx.strokeStyle = '#000000';
-    
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#000';
+
+    const { x, y } = getCanvasPoint(e);
     ctx.beginPath();
-    ctx.moveTo(e.clientX - canvas.offsetLeft, e.clientY - canvas.offsetTop);
+    ctx.moveTo(x, y);
   };
 
-  // Canvas描画中
   const draw = (e) => {
+    e.preventDefault();
     if (!isDrawing || !canvasRef.current) return;
-    
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    
-    // 描画設定（毎回設定）
-    ctx.lineWidth = 3;
+
+    ctx.lineWidth = 10 * dpr;
     ctx.lineCap = 'round';
-    ctx.strokeStyle = '#000000';
-    
-    ctx.lineTo(e.clientX - canvas.offsetLeft, e.clientY - canvas.offsetTop);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#000';
+
+    const { x, y } = getCanvasPoint(e);
+    ctx.lineTo(x, y);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(e.clientX - canvas.offsetLeft, e.clientY - canvas.offsetTop);
+    ctx.moveTo(x, y);
   };
 
-  // Canvas描画終了
-  const stopDrawing = () => {
-    setIsDrawing(false);
-  };
+  const stopDrawing = () => setIsDrawing(false);
 
-  // Canvasクリア
   const clearCanvas = () => {
     if (!canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    
-    // 背景を白に設定
-    ctx.fillStyle = '#FFFFFF';
+    // 内部ピクセル単位で白塗り
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // 描画設定を再設定
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = '#000000';
-    
-    console.log('Canvas cleared');
   };
 
-  // 数字認識API呼び出し
+  /** 数字認識 API */
   const recognizeDigit = async () => {
     if (!canvasRef.current) return null;
     const canvas = canvasRef.current;
-    
-    // Canvasの内容を確認
-    console.log('Canvas size:', canvas.width, 'x', canvas.height);
-    
-    // Canvasの内容を画像として確認
+
+    // デバッグ: 実サイズ(属性)と見た目(CSS)を確認
+    const rect = canvas.getBoundingClientRect();
+    console.log('[canvas]', {
+      dpr,
+      attr: { w: canvas.width, h: canvas.height },
+      css: { w: rect.width, h: rect.height },
+    });
+
     const dataURL = canvas.toDataURL('image/png');
-    console.log('DataURL length:', dataURL.length);
-    console.log('DataURL preview:', dataURL.substring(0, 100) + '...');
-    
-    // Base64をBlobに変換
-    const response = await fetch(dataURL);
-    const blob = await response.blob();
-    console.log('Blob size:', blob.size, 'bytes');
-    
-    // FormDataを作成
+    const res = await fetch(dataURL);
+    const blob = await res.blob();
     const formData = new FormData();
     formData.append('file', blob, 'digit.png');
-    
+
     try {
-      console.log('Sending request to API...');
       const apiResponse = await fetch('http://localhost:8000/recognize', {
         method: 'POST',
         body: formData,
       });
-      
       const result = await apiResponse.json();
-      console.log('API response:', result);
-      return result.digit;
-    } catch (error) {
-      console.error('数字認識エラー:', error);
+      return typeof result.digit === 'number' ? result.digit : null;
+    } catch (e) {
+      console.error(e);
+      message.error('認識APIに接続できませんでした');
       return null;
     }
   };
 
-  // 答えを送信
+  /** 送信 */
   const submitAnswer = async () => {
+    if (!currentProblem) return;
+
+    // n問たまるまでは“覚えるだけ”
+    if (memoryAnswers.length < n) {
+      message.info(`ウォームアップ中… あと ${n - memoryAnswers.length} 問は覚えるだけです`);
+      setMemoryAnswers((prev) => [...prev, currentProblem.answer]); // 今の答えを積む
+      setCurrentProblem(generateProblem());
+      clearCanvas();
+      return;
+    }
+
     const recognizedDigit = await recognizeDigit();
     if (recognizedDigit === null) return;
-    
-    console.log('記憶中の答え:', memoryAnswers);
-    console.log('現在のn:', n);
-    console.log('認識した数字:', recognizedDigit);
-    
-    // n個前の問題の答えと比較
-    if (memoryAnswers.length >= n) {
-      const targetAnswer = memoryAnswers[memoryAnswers.length - n];
-      console.log('比較対象の答え:', targetAnswer);
-      
-      if (recognizedDigit === targetAnswer) {
-        setScore(score + 1);
-        alert(`正解！+1点 (現在のスコア: ${score + 1})`);
-      } else {
-        alert(`不正解... 正解は ${targetAnswer} でした (現在のスコア: ${score})`);
-      }
+
+    const targetAnswer = memoryAnswers[memoryAnswers.length - n]; // ちょうど n 個前
+    if (recognizedDigit === targetAnswer) {
+      setScore((s) => s + 1);
+      message.success('正解！ +1点');
     } else {
-      alert(`まだ${n}個の問題がありません。現在: ${memoryAnswers.length}個`);
+      message.error(`不正解… 正解は ${targetAnswer}`);
     }
-    
-    // 新しい問題を生成
-    const newProblem = generateProblem();
-    setCurrentProblem(newProblem);
-    
-    // 記憶リストに追加
-    setMemoryAnswers([...memoryAnswers, newProblem.answer]);
-    
-    // Canvasをクリア
+
+    // 今表示していた問題の答えをpush → 次へ
+    setMemoryAnswers((prev) => [...prev, currentProblem.answer]);
+    setCurrentProblem(generateProblem());
     clearCanvas();
   };
 
-  // Canvas初期化
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    
-    // 背景を白に設定
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // 描画設定
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = '#000000';
-    
-    console.log('Canvas initialized');
-  }, []);
+  // useEffectでのCanvas初期化は削除（ゲーム開始時に初期化するため）
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>Oni-Calc: 記憶力脳トレゲーム</h1>
-        
+    <Layout className="app-wrap">
+      <Header style={{ background: '#0b1220' }}>
+        <Row align="middle" justify="space-between">
+          <Col>
+            <Title level={3} style={{ color: '#e6f4ff', margin: 0 }}>
+              Oni-Calc: 記憶力トレーニング
+            </Title>
+          </Col>
+          <Col>
+            <Space>
+              <Text style={{ color: '#94a3b8' }}>n</Text>
+              <InputNumber min={1} max={9} value={n} onChange={(v)=>setN(Number(v)||1)} />
+            </Space>
+          </Col>
+        </Row>
+      </Header>
+
+      <Content style={{ padding: 24 }}>
         {!gameStarted ? (
-          <div>
-            <p>n個前の問題の答えを記憶して手書きで入力するゲームです</p>
-            <label>
-              nの値: 
-              <input 
-                type="number" 
-                value={n} 
-                onChange={(e) => setN(parseInt(e.target.value))}
-                min="1" 
-                max="10"
-              />
-            </label>
-            <br />
-            <button onClick={startGame}>ゲーム開始</button>
-          </div>
+          <Card className="board">
+            <Text style={{ color: '#cbd5e1' }}>
+              n個前の問題の答えを、手書きで入力するゲームです。最初の n 問は覚えるだけ。
+            </Text>
+            <Divider />
+            <Button type="primary" onClick={startGame}>ゲーム開始</Button>
+          </Card>
         ) : (
-          <div>
-            <div className="game-info">
-              <p>スコア: {score}</p>
-              <p>記憶中の答え: {memoryAnswers.slice(-n).join(', ')}</p>
-            </div>
-            
-            <div className="problem">
-              <h2>問題: {currentProblem?.num1} {currentProblem?.operation} {currentProblem?.num2} = ?</h2>
-              <p>※{n}個前の問題の答えを手書きで入力してください</p>
-            </div>
-            
-            <div className="canvas-container">
-              <canvas
-                ref={canvasRef}
-                width={300}
-                height={300}
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                style={{ border: '1px solid #000', backgroundColor: 'white' }}
-              />
-            </div>
-            
-            <div className="controls">
-              <button onClick={clearCanvas}>クリア</button>
-              <button onClick={() => {
-                // テスト用：数字「7」を描画
-                if (!canvasRef.current) return;
-                const canvas = canvasRef.current;
-                const ctx = canvas.getContext('2d');
-                ctx.strokeStyle = '#000000';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(100, 50);
-                ctx.lineTo(100, 200);
-                ctx.moveTo(100, 50);
-                ctx.lineTo(150, 50);
-                ctx.moveTo(100, 125);
-                ctx.lineTo(150, 125);
-                ctx.stroke();
-                console.log('Test digit 7 drawn');
-              }}>テスト描画(7)</button>
-              <button onClick={submitAnswer}>送信</button>
-            </div>
-          </div>
+          <Row gutter={[24, 24]}>
+            <Col xs={24} md={16}>
+              <Card className="board" styles={{ body: { padding: 20 } }}>
+                <Row gutter={[16, 16]}>
+                  <Col xs={12} md={6}>
+                    <Statistic title="スコア" value={score} valueStyle={{ color: '#f0f9ff' }} />
+                  </Col>
+                  <Col xs={12} md={18}>
+                    <Space>
+                      {Array.from({ length: n }).map((_, i) => {
+                        // 直近 n 個分のスロット（値は見せない：カンニング防止）
+                        const isTarget = i === 0 && memoryAnswers.length >= n;
+                        return (
+                          <Tag
+                            key={i}
+                            color={isTarget ? 'green' : 'default'}
+                            style={{ padding: '6px 10px', borderRadius: 999 }}
+                          >
+                            {isTarget ? '●' : '○'}
+                          </Tag>
+                        );
+                      })}
+                    </Space>
+                  </Col>
+                </Row>
+
+                <Divider style={{ borderColor: '#1f2937' }} />
+
+                <Text style={{ color: '#9ca3af' }}>問題</Text>
+                <Title level={2} className="problem" style={{ color: '#fff' }}>
+                  {currentProblem?.num1} {currentProblem?.operation} {currentProblem?.num2} = ?
+                </Title>
+                <Text type="secondary">※{n}個前の答えを手書きで入力</Text>
+
+                <Divider />
+
+                <Row gutter={[24, 24]} align="middle">
+                  <Col>
+                    <canvas
+                      ref={canvasRef}
+                      className="pad"
+                      onPointerDown={startDrawing}
+                      onPointerMove={draw}
+                      onPointerUp={stopDrawing}
+                      onPointerLeave={stopDrawing}
+                      onContextMenu={(e) => e.preventDefault()}
+                      style={{ touchAction: 'none' }}  // タッチデバイスのスクロール抑止
+                      // width/height は useEffect で設定（HiDPI）
+                    />
+                  </Col>
+                  <Col flex="auto">
+                    <Space wrap>
+                      <Button icon={<RedoOutlined rotate={180} />} onClick={clearCanvas}>
+                        やり直す
+                      </Button>
+                      <Button danger icon={<DeleteOutlined />} onClick={clearCanvas}>
+                        消す
+                      </Button>
+                      <Button type="primary" icon={<SendOutlined />} onClick={submitAnswer}>
+                        送信
+                      </Button>
+                    </Space>
+                  </Col>
+                </Row>
+              </Card>
+            </Col>
+
+            <Col xs={24} md={8}>
+              <Card
+                className="board"
+                title="ヒント"
+                styles={{ header: { color: '#e5e7eb' } }}
+              >
+                <Space direction="vertical">
+                  <Text>・最初の <b>{n}</b> 問は覚えるだけ（自動で次へ進みます）</Text>
+                  <Text>・答えは 0–9 の一桁のみ</Text>
+                </Space>
+              </Card>
+            </Col>
+          </Row>
         )}
-      </header>
-    </div>
+      </Content>
+    </Layout>
   );
 }
-
-export default App;
