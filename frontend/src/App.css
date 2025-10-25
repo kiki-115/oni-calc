@@ -1,0 +1,73 @@
+.App {
+  text-align: center;
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+  min-height: 100vh;
+}
+
+.game-info {
+  margin: 20px 0;
+  font-size: 18px;
+}
+
+.problem {
+  margin: 20px 0;
+  padding: 20px;
+  background-color: #444;
+  border-radius: 10px;
+}
+
+.problem h2 {
+  font-size: 24px;
+  margin: 10px 0;
+}
+
+.canvas-container {
+  margin: 20px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.controls {
+  margin: 20px 0;
+}
+
+.controls button {
+  margin: 0 10px;
+  padding: 10px 20px;
+  font-size: 16px;
+  background-color: #61dafb;
+  color: #000;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.controls button:hover {
+  background-color: #21a0c4;
+}
+
+input[type="number"] {
+  margin: 0 10px;
+  padding: 5px;
+  font-size: 16px;
+}
+
+button {
+  margin: 10px;
+  padding: 10px 20px;
+  font-size: 16px;
+  background-color: #61dafb;
+  color: #000;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #21a0c4;
+}

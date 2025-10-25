@@ -87,13 +87,17 @@ async def recognize_digit(file: UploadFile = File(...)):
         
         # ファイルを読み込み
         contents = await file.read()
+        print(f"Received file size: {len(contents)} bytes")
         
         # PIL Imageに変換
         image = Image.open(io.BytesIO(contents))
+        print(f"Image size: {image.size}, mode: {image.mode}")
         
         # 一時ファイルとして保存（preprocess_for_digitがファイルパスを期待）
         temp_path = f"temp_{file.filename}"
         image.save(temp_path)
+        print(f"一時ファイルを保存しました: {temp_path}")
+        print(f"現在のディレクトリ: {os.getcwd()}")
         
         try:
             # 数字認識実行
