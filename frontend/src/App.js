@@ -5,7 +5,7 @@ import {
   Button, Statistic, Tag, InputNumber, Divider,
   App as AntdApp,
 } from 'antd';
-import { SendOutlined, DeleteOutlined, RedoOutlined } from '@ant-design/icons';
+import { SendOutlined, DeleteOutlined, RedoOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -36,6 +36,12 @@ export default function App() {
   const [gameStarted, setGameStarted] = useState(false);
   const [n, setN] = useState(3);
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  
+  // 問題履歴を管理（表示用）
+  const [problemHistory, setProblemHistory] = useState([]); // 末尾が最新
+  const [questionNumber, setQuestionNumber] = useState(0); // ゲーム全体の通し番号
+  const [showJudgment, setShowJudgment] = useState(false); // 判定を表示するか
+  const [pendingJudgment, setPendingJudgment] = useState(null); // 判定中の問題
 
   /** ゲーム開始 */
   const startGame = () => {
@@ -43,6 +49,10 @@ export default function App() {
     setGameStarted(true);
     setCurrentProblem(p);
     setMemoryAnswers([]);        // 最初は覚えるだけ
+    setProblemHistory([p]);       // 問題履歴を初期化（最初の問題のみ）
+    setQuestionNumber(1);         // 1問目から開始
+    setShowJudgment(false);
+    setPendingJudgment(null);
     setScore(0);
     
     // Canvas初期化
@@ -85,7 +95,7 @@ export default function App() {
   /** Canvas描画（Pointer Events） */
   const startDrawing = (e) => {
     e.preventDefault();
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || memoryAnswers.length < n) return;
     setIsDrawing(true);
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
@@ -102,7 +112,7 @@ export default function App() {
 
   const draw = (e) => {
     e.preventDefault();
-    if (!isDrawing || !canvasRef.current) return;
+    if (!isDrawing || !canvasRef.current || memoryAnswers.length < n) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
 
@@ -168,35 +178,77 @@ export default function App() {
 
   /** 送信 */
   const submitAnswer = async () => {
-    if (!currentProblem) return;
-
-    // n問たまるまでは“覚えるだけ”
-    if (memoryAnswers.length < n) {
-      message.info(`ウォームアップ中… あと ${n - memoryAnswers.length} 問は覚えるだけです`);
-      setMemoryAnswers((prev) => [...prev, currentProblem.answer]); // 今の答えを積む
-      setCurrentProblem(generateProblem());
-      clearCanvas();
-      return;
-    }
+    if (!currentProblem || memoryAnswers.length < n) return;
 
     const recognizedDigit = await recognizeDigit();
     if (recognizedDigit === null) return;
 
-    const targetAnswer = memoryAnswers[memoryAnswers.length - n]; // ちょうど n 個前
-    if (recognizedDigit === targetAnswer) {
-      setScore((s) => s + 1);
-      message.success('正解！ +1点');
-    } else {
-      message.error(`不正解… 正解は ${targetAnswer}`);
-    }
-
-    // 今表示していた問題の答えをpush → 次へ
-    setMemoryAnswers((prev) => [...prev, currentProblem.answer]);
-    setCurrentProblem(generateProblem());
-    clearCanvas();
+    // n個前の問題を取得（履歴の最初の問題）
+    const targetProblem = problemHistory[0];
+    const targetAnswer = memoryAnswers[memoryAnswers.length - n];
+    
+    // 推論結果を問題履歴に反映
+    const newHistory = [...problemHistory];
+    newHistory[0] = {
+      ...problemHistory[0],
+      recognizedAnswer: recognizedDigit,
+      isCorrect: recognizedDigit === targetAnswer
+    };
+    setProblemHistory(newHistory);
+    
+    // 推論結果を即座に反映（まだ判定は表示しない）
+    setPendingJudgment({ 
+      recognizedAnswer: recognizedDigit, 
+      isCorrect: recognizedDigit === targetAnswer 
+    });
+    
+    // 判定を0.5秒遅延して表示
+    setTimeout(() => {
+      setShowJudgment(true);
+      
+      if (recognizedDigit === targetAnswer) {
+        setScore((s) => s + 1);
+        message.success('正解！ +1点');
+      } else {
+        message.error(`不正解… 正解は ${targetAnswer}`);
+      }
+      
+      // さらに0.5秒後に次の問題へ
+      setTimeout(() => {
+        setPendingJudgment(null);
+        setShowJudgment(false);
+        
+        const newProblem = generateProblem();
+        setMemoryAnswers((prev) => [...prev, currentProblem.answer]);
+        setCurrentProblem(newProblem);
+        setQuestionNumber((prev) => prev + 1); // 問題番号をインクリメント
+        // 履歴の先頭を削除し、最後尾に追加（n個固定）
+        setProblemHistory((prev) => {
+          const updated = [...prev];
+          updated.shift(); // 最古の問題を削除
+          updated.push(newProblem); // 新しい問題を追加
+          return updated;
+        });
+        clearCanvas();
+      }, 500);
+    }, 500);
   };
 
-  // useEffectでのCanvas初期化は削除（ゲーム開始時に初期化するため）
+  // 記憶中は1.5秒ごとに自動で問題が切り替わる
+  useEffect(() => {
+    if (!gameStarted || memoryAnswers.length >= n) return;
+
+    const timer = setInterval(() => {
+      setMemoryAnswers((prev) => [...prev, currentProblem.answer]);
+      const newProblem = generateProblem();
+      setCurrentProblem(newProblem);
+      setProblemHistory((prev) => [...prev, newProblem]);
+      setQuestionNumber((prev) => prev + 1);
+      clearCanvas();
+    }, 1500);
+
+    return () => clearInterval(timer);
+  }, [gameStarted, memoryAnswers.length, n, currentProblem?.answer]);
 
   return (
     <Layout className="app-wrap">
@@ -207,12 +259,6 @@ export default function App() {
               Oni-Calc: 記憶力トレーニング
             </Title>
           </Col>
-          <Col>
-            <Space>
-              <Text style={{ color: '#94a3b8' }}>n</Text>
-              <InputNumber min={1} max={9} value={n} onChange={(v)=>setN(Number(v)||1)} />
-            </Space>
-          </Col>
         </Row>
       </Header>
 
@@ -220,10 +266,37 @@ export default function App() {
         {!gameStarted ? (
           <Card className="board">
             <Text style={{ color: '#cbd5e1' }}>
-              n個前の問題の答えを、手書きで入力するゲームです。最初の n 問は覚えるだけ。
+              {n}個前の問題の答えを、手書きで入力するゲームです。最初の {n} 問は覚えるだけ。
             </Text>
             <Divider />
-            <Button type="primary" onClick={startGame}>ゲーム開始</Button>
+            <Space size="large" align="center">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0, alignItems: 'center' }}>
+                  <Button 
+                    type="text" 
+                    icon={<UpOutlined />} 
+                    onClick={() => setN(prev => Math.min(9, prev + 1))}
+                    style={{ height: '20px', padding: 0 }}
+                  />
+                  <Text style={{ 
+                    color: '#fff', 
+                    fontSize: 20, 
+                    fontWeight: 'bold',
+                    lineHeight: '24px'
+                  }}>
+                    {n}
+                  </Text>
+                  <Button 
+                    type="text" 
+                    icon={<DownOutlined />} 
+                    onClick={() => setN(prev => Math.max(1, prev - 1))}
+                    style={{ height: '20px', padding: 0 }}
+                  />
+                </div>
+                <Text style={{ color: '#cbd5e1', fontSize: 16 }}>バック</Text>
+              </div>
+              <Button type="primary" onClick={startGame}>ゲーム開始</Button>
+            </Space>
           </Card>
         ) : (
           <Row gutter={[24, 24]}>
@@ -234,57 +307,151 @@ export default function App() {
                     <Statistic title="スコア" value={score} valueStyle={{ color: '#f0f9ff' }} />
                   </Col>
                   <Col xs={12} md={18}>
-                    <Space>
-                      {Array.from({ length: n }).map((_, i) => {
-                        // 直近 n 個分のスロット（値は見せない：カンニング防止）
-                        const isTarget = i === 0 && memoryAnswers.length >= n;
-                        return (
-                          <Tag
-                            key={i}
-                            color={isTarget ? 'green' : 'default'}
-                            style={{ padding: '6px 10px', borderRadius: 999 }}
-                          >
-                            {isTarget ? '●' : '○'}
-                          </Tag>
-                        );
-                      })}
-                    </Space>
+                    <Text 
+                      className={memoryAnswers.length < n ? 'telegraph-blink' : ''}
+                      style={{ 
+                        color: memoryAnswers.length < n 
+                          ? '#fbbf24' 
+                          : memoryAnswers.length === n 
+                            ? '#ef4444' 
+                            : '#cbd5e1', 
+                        fontSize: 20,
+                        fontWeight: 500
+                      }}
+                    >
+                      {memoryAnswers.length < n 
+                        ? 'いきますよ…鬼計算…' 
+                        : memoryAnswers.length === n 
+                          ? 'はじめ！！' 
+                          : ''}
+                    </Text>
                   </Col>
                 </Row>
 
                 <Divider style={{ borderColor: '#1f2937' }} />
 
-                <Text style={{ color: '#9ca3af' }}>問題</Text>
-                <Title level={2} className="problem" style={{ color: '#fff' }}>
-                  {currentProblem?.num1} {currentProblem?.operation} {currentProblem?.num2} = ?
-                </Title>
-                <Text type="secondary">※{n}個前の答えを手書きで入力</Text>
+                {/* 2つの式を表示：現在の問題 + n個前の問題 */}
+                <div style={{ marginBottom: 24 }}>
+                  {/* 現在の問題（表示） */}
+                  <div style={{ marginBottom: 16, padding: 16, background: '#1f2937', borderRadius: 8 }}>
+                    <Text style={{ color: '#9ca3af' }}>
+                      {questionNumber}問目
+                    </Text>
+                    <Title level={3} style={{ color: '#fff', margin: 0 }}>
+                      {currentProblem?.num1} {currentProblem?.operation} {currentProblem?.num2} = ?
+                    </Title>
+                  </div>
+
+                  {/* n個前の問題（問題履歴の最初）- i番目をマスク */}
+                  {problemHistory.length > n ? (
+                    <div style={{ 
+                      marginBottom: 16, 
+                      padding: 16, 
+                      background: pendingJudgment && showJudgment ? 
+                        (pendingJudgment.isCorrect ? '#14532d' : '#7f1d1d') : 
+                        '#1f2937',
+                      borderRadius: 8,
+                      border: pendingJudgment && showJudgment ? 
+                        (pendingJudgment.isCorrect ? '2px solid #22c55e' : '2px solid #ef4444') : 
+                        '1px solid #374151',
+                      transition: 'all 0.3s'
+                    }}>
+                      <Text style={{ color: '#9ca3af' }}>
+                        {questionNumber - n}問目
+                      </Text>
+                      <Title level={3} style={{ color: '#fff', margin: 0 }}>
+                        {pendingJudgment ? (
+                          // 文字を埋めたらマスクを外して式を表示
+                          <>
+                            {problemHistory[0]?.num1} {problemHistory[0]?.operation} {problemHistory[0]?.num2} = 
+                            <span style={{
+                              color: pendingJudgment.isCorrect ? '#22c55e' : '#ef4444',
+                              fontWeight: 'bold',
+                              display: 'inline-block',
+                              width: '30px',
+                              height: '30px',
+                              lineHeight: '30px',
+                              background: 'rgba(255, 255, 255, 0.1)',
+                              borderRadius: '4px',
+                              textAlign: 'center'
+                            }}>
+                              {pendingJudgment.recognizedAnswer}
+                            </span>
+                          </>
+                        ) : (
+                          // まだ記入していない時はマスク表示
+                          <>
+                            ? <span style={{ fontSize: '0.7em' }}>?</span> ? = 
+                            <span style={{
+                              display: 'inline-block',
+                              width: '30px',
+                              height: '30px',
+                              background: 'rgba(255, 255, 255, 0.1)',
+                              borderRadius: '4px'
+                            }}></span>
+                          </>
+                        )}
+                        {pendingJudgment && showJudgment && (
+                          <span style={{
+                            marginLeft: 8,
+                            fontSize: 24,
+                            color: pendingJudgment.isCorrect ? '#22c55e' : '#ef4444',
+                            fontWeight: 'bold'
+                          }}>
+                            {pendingJudgment.isCorrect ? '○' : '✗'}
+                          </span>
+                        )}
+                      </Title>
+                    </div>
+                  ) : (
+                    <Text style={{ color: '#6b7280', fontStyle: 'italic' }}>
+                      最初の{n}問は覚えるだけです...
+                    </Text>
+                  )}
+                </div>
 
                 <Divider />
 
                 <Row gutter={[24, 24]} align="middle">
                   <Col>
-                    <canvas
-                      ref={canvasRef}
-                      className="pad"
-                      onPointerDown={startDrawing}
-                      onPointerMove={draw}
-                      onPointerUp={stopDrawing}
-                      onPointerLeave={stopDrawing}
-                      onContextMenu={(e) => e.preventDefault()}
-                      style={{ touchAction: 'none' }}  // タッチデバイスのスクロール抑止
-                      // width/height は useEffect で設定（HiDPI）
-                    />
+                    <div style={{ opacity: memoryAnswers.length < n ? 0.4 : 1, pointerEvents: memoryAnswers.length < n ? 'none' : 'auto' }}>
+                      <canvas
+                        ref={canvasRef}
+                        className="pad"
+                        onPointerDown={startDrawing}
+                        onPointerMove={draw}
+                        onPointerUp={stopDrawing}
+                        onPointerLeave={stopDrawing}
+                        onContextMenu={(e) => e.preventDefault()}
+                        style={{ touchAction: 'none' }}  // タッチデバイスのスクロール抑止
+                        // width/height は useEffect で設定（HiDPI）
+                      />
+                    </div>
                   </Col>
                   <Col flex="auto">
                     <Space wrap>
-                      <Button icon={<RedoOutlined rotate={180} />} onClick={clearCanvas}>
+                      <Button 
+                        icon={<RedoOutlined rotate={180} />} 
+                        onClick={clearCanvas}
+                        disabled={memoryAnswers.length < n}
+                      >
                         やり直す
                       </Button>
-                      <Button danger icon={<DeleteOutlined />} onClick={clearCanvas}>
+                      <Button 
+                        danger 
+                        icon={<DeleteOutlined />} 
+                        onClick={clearCanvas}
+                        disabled={memoryAnswers.length < n}
+                      >
                         消す
                       </Button>
-                      <Button type="primary" icon={<SendOutlined />} onClick={submitAnswer}>
+                      <Button 
+                        type="primary" 
+                        icon={<SendOutlined />} 
+                        onClick={submitAnswer}
+                        disabled={memoryAnswers.length < n}
+                        style={{ opacity: memoryAnswers.length < n ? 0.5 : 1 }}
+                      >
                         送信
                       </Button>
                     </Space>
