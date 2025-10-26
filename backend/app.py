@@ -1,12 +1,16 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import torch
+
 import io
-from PIL import Image
-import numpy as np
-from models.inference import load_model, preprocess_for_digit, predict_digit
 import os
+import numpy as np
+from PIL import Image, ImageOps
+import torch
+import torch.nn.functional as F
+
+# 必要に応じて models.inference の関数を使う場合は調整してください
+from models.inference import load_model  # , preprocess_for_digit, predict_digit
 
 app = FastAPI(
     title="Oni-Calc API",
@@ -17,7 +21,7 @@ app = FastAPI(
 # CORS設定（フロントエンドからのアクセスを許可）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 本番環境では具体的なドメインを指定
+    allow_origins=["*"],  # 本番では特定ドメインに絞ってください
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,21 +31,97 @@ app.add_middleware(
 model = None
 device = None
 
+# -------------------------
+#  前処理：MNIST準拠の整形
+# -------------------------
+def preprocess_png_like_mnist(png_bytes: bytes) -> torch.Tensor:
+    """
+    RGBA -> 白合成 -> グレースケール -> 反転(白字) -> BBox切出 ->
+    長辺20pxへ等比縮小 -> 28x28パディング -> 重心センタリング -> [0,1]Tensor (1,1,28,28)
+    """
+    # 1) 読み込み & 白背景合成 -> グレースケール
+    img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+    bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+    img = Image.alpha_composite(bg, img).convert("L")  # 8bit gray
+
+    # 2) MNISTは黒地に白字想定なので反転（白地黒字→黒地白字）
+    img = ImageOps.invert(img)
+    arr = np.array(img, dtype=np.uint8)
+
+    # 3) 前景のBBox（0より明るい画素を前景）
+    ys, xs = np.where(arr > 0)
+    if len(xs) == 0:
+        # 何も書いてない場合
+        x = np.zeros((1, 1, 28, 28), dtype=np.float32)
+        return torch.from_numpy(x)
+
+    ymin, ymax = ys.min(), ys.max()
+    xmin, xmax = xs.min(), xs.max()
+    crop = arr[ymin:ymax + 1, xmin:xmax + 1]
+
+    # 4) 長辺を20pxに等比縮小（BICUBIC）
+    h, w = crop.shape
+    scale = 20.0 / max(h, w)
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    crop_img = Image.fromarray(crop).resize((new_w, new_h), Image.BICUBIC)
+
+    # 5) 28x28の黒キャンバスに中央配置
+    canvas = Image.new("L", (28, 28), 0)
+    ox = (28 - new_w) // 2
+    oy = (28 - new_h) // 2
+    canvas.paste(crop_img, (ox, oy))
+
+    # 6) 重心センタリング（1px単位の整数シフト）
+    a = np.array(canvas, dtype=np.float32)
+    y_idx, x_idx = np.mgrid[0:28, 0:28]
+    mass = a.sum() + 1e-6
+    cx = (a * x_idx).sum() / mass
+    cy = (a * y_idx).sum() / mass
+    sx = int(round(14 - cx))
+    sy = int(round(14 - cy))
+    a = np.roll(np.roll(a, sy, axis=0), sx, axis=1)
+
+    # 7) 0–1へ正規化 & (1,1,28,28)
+    a = (a / 255.0).astype(np.float32)
+    a = a[None, None, :, :]
+    return torch.from_numpy(a)
+
+def run_model_logits(x_1x1x28x28: torch.Tensor) -> torch.Tensor:
+    """
+    モデルがCNN/MLPどちらでも動くように、順に試す。
+    1) まず (N,1,28,28) のまま forward
+    2) ダメなら flatten して (N,784)
+    """
+    # 1) CNN/汎用パス
+    try:
+        return model(x_1x1x28x28)
+    except Exception:
+        pass
+    # 2) MLPパス（flatten）
+    n = x_1x1x28x28.size(0)
+    x_flat = x_1x1x28x28.view(n, -1)
+    return model(x_flat)
+
+def topk_from_logits(logits: torch.Tensor, k: int = 3):
+    probs = F.softmax(logits, dim=1)
+    conf, idx = probs.topk(k, dim=1)
+    idx = idx[0].tolist()
+    conf = conf[0].tolist()
+    pred = idx[0]
+    p0 = conf[0]
+    return idx, conf, pred, p0
+
 @app.on_event("startup")
 async def startup_event():
     """サーバー起動時にモデルをロード"""
     global model, device
-    
-    # デバイス設定
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # モデルパス
     model_path = "models/model.pt"
-    
+
     try:
-        # モデルをロード
         model = load_model(model_path, device, input_size=28)
-        model.to(device)
+        model.to(device).eval()
         print(f"モデルをロードしました: {model_path}")
         print(f"デバイス: {device}")
     except Exception as e:
@@ -50,12 +130,10 @@ async def startup_event():
 
 @app.get("/")
 async def root():
-    """ヘルスチェック用エンドポイント"""
     return {"message": "Oni-Calc API is running!", "status": "healthy"}
 
 @app.get("/health")
 async def health_check():
-    """ヘルスチェック"""
     return {
         "status": "healthy",
         "model_loaded": model is not None,
@@ -66,64 +144,53 @@ async def health_check():
 async def recognize_digit(file: UploadFile = File(...)):
     """
     手書き数字画像を認識するAPI
-    
-    Args:
-        file: アップロードされた画像ファイル
-        
-    Returns:
-        JSON: 認識結果（数字、信頼度、上位3候補）
+    Returns: JSON（digit, confidence, top3）
     """
     if model is None:
         raise HTTPException(status_code=500, detail="モデルがロードされていません")
-    
+
     try:
-        # ファイルサイズチェック（10MB制限）
-        if file.size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="ファイルサイズが大きすぎます（10MB制限）")
-        
-        # 画像ファイルかチェック
-        if not file.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="画像ファイルをアップロードしてください")
-        
-        # ファイルを読み込み
+        # --- 読み込み & サイズ検査（10MB） ---
         contents = await file.read()
-        print(f"Received file size: {len(contents)} bytes")
-        
-        # PIL Imageに変換
-        image = Image.open(io.BytesIO(contents))
-        print(f"Image size: {image.size}, mode: {image.mode}")
-        
-        # 一時ファイルとして保存（preprocess_for_digitがファイルパスを期待）
-        temp_path = f"temp_{file.filename}"
-        image.save(temp_path)
-        print(f"一時ファイルを保存しました: {temp_path}")
-        print(f"現在のディレクトリ: {os.getcwd()}")
-        
+        size_bytes = len(contents)
+        if size_bytes > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="ファイルサイズが大きすぎます（10MB制限）")
+
+        # --- 画像として開けるか（content_typeに依存しすぎない） ---
         try:
-            # 数字認識実行
-            result = predict_digit(
-                model=model,
-                img_path=temp_path,
-                device=device,
-                size=28,
-                channels=1,
-                topk=3
-            )
-            
-            return JSONResponse(content={
-                "success": True,
-                "digit": result["pred"],
-                "confidence": result["conf"],
-                "top3": result["topk"],
-                "message": f"認識結果: {result['pred']} (信頼度: {result['conf']:.3f})"
-            })
-            
-        finally:
-            # 一時ファイルを削除
-            # if os.path.exists(temp_path):
-            #     os.remove(temp_path)
-            pass
-                
+            img_probe = Image.open(io.BytesIO(contents))
+            mode_hint = img_probe.mode
+            w_hint, h_hint = img_probe.size
+        except Exception:
+            raise HTTPException(status_code=400, detail="画像ファイルをアップロードしてください")
+
+        # --- MNIST準拠の前処理 ---
+        x = preprocess_png_like_mnist(contents)  # (1,1,28,28), [0,1]
+        x = x.to(device)
+
+        # --- 推論 ---
+        with torch.no_grad():
+            logits = run_model_logits(x)
+
+        idx_topk, conf_topk, pred, conf = topk_from_logits(logits, k=3)
+        result_top3 = [{"digit": int(i), "prob": float(p)} for i, p in zip(idx_topk, conf_topk)]
+
+        return JSONResponse(content={
+            "success": True,
+            "digit": int(pred),
+            "confidence": float(conf),
+            "top3": result_top3,
+            "message": f"認識結果: {int(pred)} (信頼度: {conf:.3f})",
+            "debug": {
+                "bytes": size_bytes,
+                "image_size": [int(w_hint), int(h_hint)],
+                "image_mode": str(mode_hint),
+                "note": "前処理=反転/切出/20px/28パッド/重心/0-1"
+            }
+        })
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"認識エラー: {e}")
         raise HTTPException(status_code=500, detail=f"数字認識に失敗しました: {str(e)}")
