@@ -6,7 +6,7 @@ import torch.nn as nn
 from PIL import Image, ImageOps
 import numpy as np
 import cv2
-from .model import MyModel
+from .model import MyCNNModel
 
 def load_model(model_path: str, device: torch.device, input_size: int | None = None):
     """
@@ -38,7 +38,7 @@ def load_model(model_path: str, device: torch.device, input_size: int | None = N
             raise RuntimeError(
                 "この .pt は state_dict です。--size に学習時の入力サイズ（例: 28）を指定してください。"
             )
-        model = MyModel(input_size=input_size)
+        model = MyCNNModel(input_size=input_size)
         model.load_state_dict(obj, strict=True)
         model.eval()
         return model

@@ -3,9 +3,9 @@ import './App.css';
 import {
   Layout, Row, Col, Card, Space, Typography,
   Button, Statistic, Tag, InputNumber, Divider,
-  App as AntdApp,
+  App as AntdApp, Modal,
 } from 'antd';
-import { SendOutlined, DeleteOutlined, RedoOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
+import { SendOutlined, DeleteOutlined, UpOutlined, DownOutlined, HomeOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -42,6 +42,7 @@ export default function App() {
   const [questionNumber, setQuestionNumber] = useState(0); // ゲーム全体の通し番号
   const [showJudgment, setShowJudgment] = useState(false); // 判定を表示するか
   const [pendingJudgment, setPendingJudgment] = useState(null); // 判定中の問題
+  const [hintModalVisible, setHintModalVisible] = useState(false); // ヒントモーダルの表示状態
 
   /** ゲーム開始 */
   const startGame = () => {
@@ -63,7 +64,7 @@ export default function App() {
       }
       
       const canvas = canvasRef.current;
-      const cssW = 300, cssH = 300;
+      const cssW = 400, cssH = 400;
       canvas.width = Math.floor(cssW * dpr);   // 内部ピクセル
       canvas.height = Math.floor(cssH * dpr);
       canvas.style.width = cssW + 'px';
@@ -78,6 +79,44 @@ export default function App() {
         aspectRatio: canvas.width / canvas.height
       });
     }, 100);
+  };
+
+  /** ゲームをリセットして最初に戻す */
+  const restartGame = () => {
+    const p = generateProblem();
+    setCurrentProblem(p);
+    setMemoryAnswers([]);        // 最初は覚えるだけ
+    setProblemHistory([p]);       // 問題履歴を初期化（最初の問題のみ）
+    setQuestionNumber(1);         // 1問目から開始
+    setShowJudgment(false);
+    setPendingJudgment(null);
+    setScore(0);
+    
+    // Canvas初期化
+    setTimeout(() => {
+      if (!canvasRef.current) {
+        console.error('Canvas ref is null');
+        return;
+      }
+      
+      const canvas = canvasRef.current;
+      const cssW = 400, cssH = 400;
+      canvas.width = Math.floor(cssW * dpr);   // 内部ピクセル
+      canvas.height = Math.floor(cssH * dpr);
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      console.log('Canvas initialized:', {
+        width: canvas.width,
+        height: canvas.height,
+        aspectRatio: canvas.width / canvas.height
+      });
+    }, 100);
+    
+    message.info('ゲームをリセットしました');
   };
 
   /** CSS座標 → 内部ピクセル座標に変換 */
@@ -202,7 +241,7 @@ export default function App() {
       isCorrect: recognizedDigit === targetAnswer 
     });
     
-    // 判定を0.5秒遅延して表示
+    // 判定を0.2秒遅延して表示
     setTimeout(() => {
       setShowJudgment(true);
       
@@ -213,7 +252,7 @@ export default function App() {
         message.error(`不正解… 正解は ${targetAnswer}`);
       }
       
-      // さらに0.5秒後に次の問題へ
+      // さらに0.3秒後に次の問題へ
       setTimeout(() => {
         setPendingJudgment(null);
         setShowJudgment(false);
@@ -230,8 +269,8 @@ export default function App() {
           return updated;
         });
         clearCanvas();
-      }, 500);
-    }, 500);
+      }, 300);
+    }, 200);
   };
 
   // 記憶中は1.5秒ごとに自動で問題が切り替わる
@@ -300,31 +339,70 @@ export default function App() {
           </Card>
         ) : (
           <Row gutter={[24, 24]}>
-            <Col xs={24} md={16}>
+            <Col xs={24} md={12}>
               <Card className="board" styles={{ body: { padding: 20 } }}>
                 <Row gutter={[16, 16]}>
                   <Col xs={12} md={6}>
-                    <Statistic title="スコア" value={score} valueStyle={{ color: '#f0f9ff' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Button 
+                        type="text"
+                        icon={<QuestionCircleOutlined />}
+                        onClick={() => setHintModalVisible(true)}
+                        style={{ color: '#94a3b8' }}
+                      />
+                      <Statistic title="スコア" value={score} valueStyle={{ color: '#f0f9ff' }} />
+                    </div>
                   </Col>
                   <Col xs={12} md={18}>
-                    <Text 
-                      className={memoryAnswers.length < n ? 'telegraph-blink' : ''}
-                      style={{ 
-                        color: memoryAnswers.length < n 
-                          ? '#fbbf24' 
+                    <div style={{ position: 'relative', minHeight: '32px' }}>
+                      <Text 
+                        className={memoryAnswers.length < n ? 'telegraph-blink' : ''}
+                        style={{ 
+                          color: memoryAnswers.length < n 
+                            ? '#fbbf24' 
+                            : memoryAnswers.length === n 
+                              ? '#ef4444' 
+                              : '#cbd5e1', 
+                          fontSize: 20,
+                          fontWeight: 500,
+                          position: 'absolute',
+                          left: 0,
+                          bottom: 0
+                        }}
+                      >
+                        {memoryAnswers.length < n 
+                          ? 'いきますよ…鬼計算…' 
                           : memoryAnswers.length === n 
-                            ? '#ef4444' 
-                            : '#cbd5e1', 
-                        fontSize: 20,
-                        fontWeight: 500
-                      }}
-                    >
-                      {memoryAnswers.length < n 
-                        ? 'いきますよ…鬼計算…' 
-                        : memoryAnswers.length === n 
-                          ? 'はじめ！！' 
-                          : ''}
-                    </Text>
+                            ? 'はじめ！！' 
+                            : ''}
+                      </Text>
+                      <Button 
+                        icon={<HomeOutlined />} 
+                        onClick={restartGame}
+                        style={{ 
+                          position: 'absolute', 
+                          right: 120, 
+                          top: 0,
+                          transform: 'translateY(-8px)'
+                        }}
+                        size="small"
+                      >
+                        やり直す
+                      </Button>
+                      <Button 
+                        icon={<HomeOutlined />} 
+                        onClick={() => setGameStarted(false)}
+                        style={{ 
+                          position: 'absolute', 
+                          right: 0, 
+                          top: 0,
+                          transform: 'translateY(-8px)'
+                        }}
+                        size="small"
+                      >
+                        ホーム
+                      </Button>
+                    </div>
                   </Col>
                 </Row>
 
@@ -332,15 +410,48 @@ export default function App() {
 
                 {/* 2つの式を表示：現在の問題 + n個前の問題 */}
                 <div style={{ marginBottom: 24 }}>
+                  {/* 上方向の点線 */}
+                  {problemHistory.length > n && (
+                    <div style={{ 
+                      textAlign: 'center', 
+                      padding: '4px 0', 
+                      color: '#9ca3af',
+                      fontSize: '24px',
+                      fontWeight: 'bold',
+                      letterSpacing: '3px'
+                    }}>
+                      ⋮
+                    </div>
+                  )}
+
                   {/* 現在の問題（表示） */}
                   <div style={{ marginBottom: 16, padding: 16, background: '#1f2937', borderRadius: 8 }}>
                     <Text style={{ color: '#9ca3af' }}>
                       {questionNumber}問目
                     </Text>
-                    <Title level={3} style={{ color: '#fff', margin: 0 }}>
+                    <Title 
+                      key={`current-${questionNumber}`}
+                      level={3} 
+                      className={!pendingJudgment ? "slide-in-text" : ""} 
+                      style={{ color: '#fff', margin: 0 }}
+                    >
                       {currentProblem?.num1} {currentProblem?.operation} {currentProblem?.num2} = ?
                     </Title>
                   </div>
+
+                  {/* 中間の点線 */}
+                  {problemHistory.length > n && (
+                    <div style={{ 
+                      textAlign: 'center', 
+                      padding: '4px 0', 
+                      color: '#9ca3af',
+                      fontSize: '24px',
+                      fontWeight: 'bold',
+                      letterSpacing: '3px'
+                    }}>
+                      ⋮
+                    </div>
+                  )}
 
                   {/* n個前の問題（問題履歴の最初）- i番目をマスク */}
                   {problemHistory.length > n ? (
@@ -359,7 +470,12 @@ export default function App() {
                       <Text style={{ color: '#9ca3af' }}>
                         {questionNumber - n}問目
                       </Text>
-                      <Title level={3} style={{ color: '#fff', margin: 0 }}>
+                      <Title 
+                        key={`history-${questionNumber - n}-${pendingJudgment ? 'answered' : 'pending'}`}
+                        level={3} 
+                        className={!pendingJudgment ? "slide-in-text" : ""} 
+                        style={{ color: '#fff', margin: 0 }}
+                      >
                         {pendingJudgment ? (
                           // 文字を埋めたらマスクを外して式を表示
                           <>
@@ -408,13 +524,33 @@ export default function App() {
                       最初の{n}問は覚えるだけです...
                     </Text>
                   )}
+
+                  {/* 下方向の点線 */}
+                  {problemHistory.length > n && (
+                    <div style={{ 
+                      textAlign: 'center', 
+                      padding: '4px 0', 
+                      color: '#9ca3af',
+                      fontSize: '24px',
+                      fontWeight: 'bold',
+                      letterSpacing: '3px'
+                    }}>
+                      ⋮
+                    </div>
+                  )}
                 </div>
 
-                <Divider />
+              </Card>
+            </Col>
 
-                <Row gutter={[24, 24]} align="middle">
-                  <Col>
-                    <div style={{ opacity: memoryAnswers.length < n ? 0.4 : 1, pointerEvents: memoryAnswers.length < n ? 'none' : 'auto' }}>
+            <Col xs={24} md={12}>
+              <Card className="board" styles={{ body: { padding: 20 } }}>
+                <Space direction="vertical" style={{ width: '100%' }} size="large">
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <div style={{ 
+                      opacity: memoryAnswers.length < n ? 0.4 : 1, 
+                      pointerEvents: memoryAnswers.length < n ? 'none' : 'auto' 
+                    }}>
                       <canvas
                         ref={canvasRef}
                         className="pad"
@@ -427,53 +563,45 @@ export default function App() {
                         // width/height は useEffect で設定（HiDPI）
                       />
                     </div>
-                  </Col>
-                  <Col flex="auto">
-                    <Space wrap>
-                      <Button 
-                        icon={<RedoOutlined rotate={180} />} 
-                        onClick={clearCanvas}
-                        disabled={memoryAnswers.length < n}
-                      >
-                        やり直す
-                      </Button>
-                      <Button 
-                        danger 
-                        icon={<DeleteOutlined />} 
-                        onClick={clearCanvas}
-                        disabled={memoryAnswers.length < n}
-                      >
-                        消す
-                      </Button>
-                      <Button 
-                        type="primary" 
-                        icon={<SendOutlined />} 
-                        onClick={submitAnswer}
-                        disabled={memoryAnswers.length < n}
-                        style={{ opacity: memoryAnswers.length < n ? 0.5 : 1 }}
-                      >
-                        送信
-                      </Button>
-                    </Space>
-                  </Col>
-                </Row>
-              </Card>
-            </Col>
-
-            <Col xs={24} md={8}>
-              <Card
-                className="board"
-                title="ヒント"
-                styles={{ header: { color: '#e5e7eb' } }}
-              >
-                <Space direction="vertical">
-                  <Text>・最初の <b>{n}</b> 問は覚えるだけ（自動で次へ進みます）</Text>
-                  <Text>・答えは 0–9 の一桁のみ</Text>
+                  </div>
+                  <Space wrap style={{ width: '100%', justifyContent: 'center' }}>
+                    <Button 
+                      danger 
+                      icon={<DeleteOutlined />} 
+                      onClick={clearCanvas}
+                      disabled={memoryAnswers.length < n}
+                    >
+                      消す
+                    </Button>
+                    <Button 
+                      type="primary" 
+                      icon={<SendOutlined />} 
+                      onClick={submitAnswer}
+                      disabled={memoryAnswers.length < n}
+                      style={{ opacity: memoryAnswers.length < n ? 0.5 : 1 }}
+                    >
+                      送信
+                    </Button>
+                  </Space>
                 </Space>
               </Card>
             </Col>
           </Row>
         )}
+
+        {/* ヒントモーダル */}
+        <Modal
+          title="ヒント"
+          open={hintModalVisible}
+          onCancel={() => setHintModalVisible(false)}
+          footer={null}
+          styles={{ content: { background: '#1f2937' }, header: { background: '#1f2937', color: '#e5e7eb', borderBottom: '1px solid #374151' } }}
+        >
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Text style={{ color: '#cbd5e1' }}>・最初の <b>{n}</b> 問は覚えるだけ（自動で次へ進みます）</Text>
+            <Text style={{ color: '#cbd5e1' }}>・答えは 0–9 の一桁のみ</Text>
+          </Space>
+        </Modal>
       </Content>
     </Layout>
   );
