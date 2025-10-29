@@ -51,6 +51,7 @@ export default function App() {
   const [answeredCount, setAnsweredCount] = useState(0); // 解答済み問題数
   const [wrongCount, setWrongCount] = useState(0); // 間違えた問題数
   const [finalScore, setFinalScore] = useState(null); // 最終スコア
+  const [finalTime, setFinalTime] = useState(null); // 解答時間
   const [answerHistory, setAnswerHistory] = useState([]); // 回答結果の履歴（o=xの配列）
 
   /** ゲーム開始 */
@@ -212,11 +213,6 @@ export default function App() {
 
     // デバッグ: 実サイズ(属性)と見た目(CSS)を確認
     const rect = canvas.getBoundingClientRect();
-    console.log('[canvas]', {
-      dpr,
-      attr: { w: canvas.width, h: canvas.height },
-      css: { w: rect.width, h: rect.height },
-    });
 
     const dataURL = canvas.toDataURL('image/png');
     const res = await fetch(dataURL);
@@ -288,9 +284,10 @@ export default function App() {
       // 40問解答したらゲーム終了
       const currentAnswered = answeredCount + 1;
       if (currentAnswered >= 40) {
-        const finalTime = (Date.now() - startTime) / 1000; // 0.1秒単位で取得
+        const localFinalTime = (Date.now() - startTime) / 1000;
+        setFinalTime(localFinalTime); // 0.1秒単位で取得
         const finalWrongCount = wrongCount + (isCorrect ? 0 : 1);
-        const calculatedScore = Number((finalTime + finalWrongCount * 8).toFixed(1)); // 0.1秒単位で計算
+        const calculatedScore = Number((localFinalTime + finalWrongCount * 8).toFixed(1)); // 0.1秒単位で計算
         setFinalScore(calculatedScore);
         setGameFinished(true);
         setIsSubmitting(false); // ゲーム終了時にフラグを下ろす
@@ -454,7 +451,7 @@ export default function App() {
                   かかった時間
                 </Text>
                 <Title level={1} style={{ color: '#fff', margin: 0 }}>
-                  {typeof elapsedTime === 'number' ? elapsedTime.toFixed(1) : elapsedTime}秒
+                  {typeof finalTime === 'number' ? finalTime.toFixed(1) : finalTime}秒
                 </Title>
               </div>
               <div style={{ padding: '24px', background: '#1f2937', borderRadius: 8 }}>

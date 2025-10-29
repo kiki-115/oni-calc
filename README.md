@@ -116,8 +116,7 @@ python make_cnn_model.py
    ```
 
 3. **ブラウザでアクセス**
-   - `http://localhost:3000` にアクセス
-   - ゲームを開始し、計算問題に答えます
+   `http://localhost:3000` にアクセスしてゲームを開始し、計算問題に答えます
 
 ## API仕様
 
