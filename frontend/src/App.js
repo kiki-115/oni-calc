@@ -5,7 +5,7 @@ import {
   Button, Statistic, Tag, InputNumber, Divider,
   App as AntdApp, Modal,
 } from 'antd';
-import { SendOutlined, DeleteOutlined, UpOutlined, DownOutlined, HomeOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { SendOutlined, DeleteOutlined, UpOutlined, DownOutlined, HomeOutlined, QuestionCircleOutlined, RedoOutlined } from '@ant-design/icons';
 
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
@@ -32,8 +32,8 @@ export default function App() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentProblem, setCurrentProblem] = useState(null);
   const [memoryAnswers, setMemoryAnswers] = useState([]); // 末尾が最新
-  const [score, setScore] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
+  const [gameFinished, setGameFinished] = useState(false); // ゲーム終了フラグ
   const [n, setN] = useState(3);
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
   
@@ -42,19 +42,35 @@ export default function App() {
   const [questionNumber, setQuestionNumber] = useState(0); // ゲーム全体の通し番号
   const [showJudgment, setShowJudgment] = useState(false); // 判定を表示するか
   const [pendingJudgment, setPendingJudgment] = useState(null); // 判定中の問題
+  const [isSubmitting, setIsSubmitting] = useState(false); // 送信中フラグ
   const [hintModalVisible, setHintModalVisible] = useState(false); // ヒントモーダルの表示状態
+  
+  // ゲームタイマー関連
+  const [startTime, setStartTime] = useState(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0); // 解答済み問題数
+  const [wrongCount, setWrongCount] = useState(0); // 間違えた問題数
+  const [finalScore, setFinalScore] = useState(null); // 最終スコア
+  const [answerHistory, setAnswerHistory] = useState([]); // 回答結果の履歴（o=xの配列）
 
   /** ゲーム開始 */
   const startGame = () => {
     const p = generateProblem();
     setGameStarted(true);
+    setGameFinished(false);
     setCurrentProblem(p);
     setMemoryAnswers([]);        // 最初は覚えるだけ
     setProblemHistory([p]);       // 問題履歴を初期化（最初の問題のみ）
     setQuestionNumber(1);         // 1問目から開始
     setShowJudgment(false);
     setPendingJudgment(null);
-    setScore(0);
+    setIsSubmitting(false);
+    setStartTime(null);           // 「はじめ！！」のタイミングで開始
+    setElapsedTime(0);
+    setAnsweredCount(0);
+    setWrongCount(0);
+    setFinalScore(null);
+    setAnswerHistory([]);
     
     // Canvas初期化
     setTimeout(() => {
@@ -90,7 +106,14 @@ export default function App() {
     setQuestionNumber(1);         // 1問目から開始
     setShowJudgment(false);
     setPendingJudgment(null);
-    setScore(0);
+    setIsSubmitting(false);
+    setStartTime(null);           // 「はじめ！！」のタイミングで開始
+    setElapsedTime(0);
+    setAnsweredCount(0);
+    setWrongCount(0);
+    setGameFinished(false);
+    setFinalScore(null);
+    setAnswerHistory([]);
     
     // Canvas初期化
     setTimeout(() => {
@@ -217,10 +240,16 @@ export default function App() {
 
   /** 送信 */
   const submitAnswer = async () => {
-    if (!currentProblem || memoryAnswers.length < n) return;
+    // 二重実行防止: 送信中、判定表示中、記憶中は実行不可
+    if (!currentProblem || memoryAnswers.length < n || isSubmitting || showJudgment || pendingJudgment) return;
+
+    setIsSubmitting(true); // 送信開始
 
     const recognizedDigit = await recognizeDigit();
-    if (recognizedDigit === null) return;
+    if (recognizedDigit === null) {
+      setIsSubmitting(false); // エラー時はフラグを下ろす
+      return;
+    }
 
     // n個前の問題を取得（履歴の最初の問題）
     const targetProblem = problemHistory[0];
@@ -245,17 +274,35 @@ export default function App() {
     setTimeout(() => {
       setShowJudgment(true);
       
-      if (recognizedDigit === targetAnswer) {
-        setScore((s) => s + 1);
-        message.success('正解！ +1点');
-      } else {
-        message.error(`不正解… 正解は ${targetAnswer}`);
+      const isCorrect = recognizedDigit === targetAnswer;
+      
+      // 回答履歴に追加
+      setAnswerHistory((prev) => [...prev, isCorrect ? 'o' : 'x']);
+      
+      if (!isCorrect) {
+        setWrongCount((prev) => prev + 1);
+      }
+      
+      setAnsweredCount((prev) => prev + 1);
+      
+      // 40問解答したらゲーム終了
+      const currentAnswered = answeredCount + 1;
+      if (currentAnswered >= 40) {
+        const finalTime = (Date.now() - startTime) / 1000; // 0.1秒単位で取得
+        const finalWrongCount = wrongCount + (isCorrect ? 0 : 1);
+        const calculatedScore = Number((finalTime + finalWrongCount * 8).toFixed(1)); // 0.1秒単位で計算
+        setFinalScore(calculatedScore);
+        setGameFinished(true);
+        setIsSubmitting(false); // ゲーム終了時にフラグを下ろす
+        clearCanvas();
+        return;
       }
       
       // さらに0.3秒後に次の問題へ
       setTimeout(() => {
         setPendingJudgment(null);
         setShowJudgment(false);
+        setIsSubmitting(false); // 次の問題へ進む時にフラグを下ろす
         
         const newProblem = generateProblem();
         setMemoryAnswers((prev) => [...prev, currentProblem.answer]);
@@ -272,6 +319,26 @@ export default function App() {
       }, 300);
     }, 200);
   };
+
+  // 「はじめ！！」のタイミングでタイマーを開始
+  useEffect(() => {
+    if (!gameStarted || gameFinished || memoryAnswers.length !== n || startTime !== null) return;
+    
+    setStartTime(Date.now());
+  }, [gameStarted, gameFinished, memoryAnswers.length, n, startTime]);
+
+  // 経過時間を更新（0.1秒ごと）
+  useEffect(() => {
+    if (!gameStarted || gameFinished || !startTime) return;
+    
+    const timer = setInterval(() => {
+      if (startTime) {
+        setElapsedTime((Date.now() - startTime) / 1000);
+      }
+    }, 100);
+    
+    return () => clearInterval(timer);
+  }, [gameStarted, gameFinished, startTime]);
 
   // 記憶中は1.5秒ごとに自動で問題が切り替わる
   useEffect(() => {
@@ -291,11 +358,33 @@ export default function App() {
 
   return (
     <Layout className="app-wrap">
-      <Header style={{ background: '#0b1220' }}>
-        <Row align="middle" justify="space-between">
+      <Header style={{ 
+        background: 'linear-gradient(135deg, #0b1220 0%, #1e293b 50%, #0b1220 100%)',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        paddingTop: '16px',
+        height: 'auto',
+        minHeight: '64px'
+      }}>
+        <Row align="bottom" justify="space-between" style={{ paddingBottom: '8px' }}>
           <Col>
-            <Title level={3} style={{ color: '#e6f4ff', margin: 0 }}>
-              Oni-Calc: 記憶力トレーニング
+            <Title 
+              level={2} 
+              style={{ 
+                margin: 0,
+                paddingBottom: '4px',
+                background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #f97316 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                fontSize: '28px',
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+                textShadow: '0 2px 8px rgba(251, 191, 36, 0.3)',
+                fontFamily: '"Hiragino Sans", "ヒラギノ角ゴ ProN", "Hiragino Kaku Gothic ProN", "游ゴシック", "Yu Gothic", "メイリオ", Meiryo, sans-serif'
+              }}
+            >
+              鬼計算 : 記憶力トレーニング
             </Title>
           </Col>
         </Row>
@@ -337,20 +426,75 @@ export default function App() {
               <Button type="primary" onClick={startGame}>ゲーム開始</Button>
             </Space>
           </Card>
+        ) : gameFinished ? (
+          <Card className="board" styles={{ body: { padding: 40 } }}>
+            <Space direction="vertical" size="large" style={{ width: '100%', textAlign: 'center' }}>
+              <Title level={2} style={{ color: '#fff' }}>お疲れ様でした！</Title>
+              <div style={{ padding: '24px', background: '#1f2937', borderRadius: 8 }}>
+                <Text style={{ color: '#9ca3af', fontSize: 16, display: 'block', marginBottom: 8 }}>
+                  解答結果
+                </Text>
+                <div style={{ 
+                  fontFamily: 'monospace', 
+                  fontSize: 20, 
+                  letterSpacing: '3px',
+                  color: '#fff',
+                  wordBreak: 'break-all',
+                  textAlign: 'center'
+                }}>
+                  {answerHistory.map((result, idx) => (
+                    <span key={idx} style={{ color: result === 'o' ? '#22c55e' : '#ef4444' }}>
+                      {result}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ padding: '24px', background: '#1f2937', borderRadius: 8 }}>
+                <Text style={{ color: '#9ca3af', fontSize: 16, display: 'block', marginBottom: 8 }}>
+                  かかった時間
+                </Text>
+                <Title level={1} style={{ color: '#fff', margin: 0 }}>
+                  {typeof elapsedTime === 'number' ? elapsedTime.toFixed(1) : elapsedTime}秒
+                </Title>
+              </div>
+              <div style={{ padding: '24px', background: '#1f2937', borderRadius: 8 }}>
+                <Text style={{ color: '#9ca3af', fontSize: 16, display: 'block', marginBottom: 8 }}>
+                  間違い数
+                </Text>
+                <Title level={1} style={{ color: '#fff', margin: 0 }}>
+                  {wrongCount}問
+                </Title>
+              </div>
+              <div style={{ padding: '24px', background: '#0f172a', borderRadius: 8, border: '2px solid #fbbf24' }}>
+                <Text style={{ color: '#fbbf24', fontSize: 20, display: 'block', marginBottom: 8 }}>
+                  最終スコア（時間 + 間違い×8秒）
+                </Text>
+                <Title level={1} style={{ color: '#fbbf24', margin: 0 }}>
+                  {finalScore !== null ? finalScore.toFixed(1) : 0}秒
+                </Title>
+              </div>
+              <Button type="primary" size="large" onClick={() => { setGameStarted(false); setGameFinished(false); }}>
+                ホームに戻る
+              </Button>
+            </Space>
+          </Card>
         ) : (
           <Row gutter={[24, 24]}>
             <Col xs={24} md={12}>
               <Card className="board" styles={{ body: { padding: 20 } }}>
                 <Row gutter={[16, 16]}>
                   <Col xs={12} md={6}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Button 
-                        type="text"
-                        icon={<QuestionCircleOutlined />}
-                        onClick={() => setHintModalVisible(true)}
-                        style={{ color: '#94a3b8' }}
-                      />
-                      <Statistic title="スコア" value={score} valueStyle={{ color: '#f0f9ff' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Button 
+                          type="text"
+                          icon={<QuestionCircleOutlined />}
+                          onClick={() => setHintModalVisible(true)}
+                          style={{ color: '#94a3b8' }}
+                        />
+                        <Statistic title="経過時間" value={`${typeof elapsedTime === 'number' ? elapsedTime.toFixed(1) : elapsedTime}秒`} valueStyle={{ color: '#f0f9ff', fontSize: 24 }} />
+                      </div>
+                      <Text style={{ color: '#94a3b8', fontSize: 14 }}>残り: {40 - answeredCount}問</Text>
                     </div>
                   </Col>
                   <Col xs={12} md={18}>
@@ -377,7 +521,7 @@ export default function App() {
                             : ''}
                       </Text>
                       <Button 
-                        icon={<HomeOutlined />} 
+                        icon={<RedoOutlined />} 
                         onClick={restartGame}
                         style={{ 
                           position: 'absolute', 
@@ -489,7 +633,8 @@ export default function App() {
                               lineHeight: '30px',
                               background: 'rgba(255, 255, 255, 0.1)',
                               borderRadius: '4px',
-                              textAlign: 'center'
+                              textAlign: 'center',
+                              marginLeft: '0.5em'
                             }}>
                               {pendingJudgment.recognizedAnswer}
                             </span>
@@ -503,7 +648,8 @@ export default function App() {
                               width: '30px',
                               height: '30px',
                               background: 'rgba(255, 255, 255, 0.1)',
-                              borderRadius: '4px'
+                              borderRadius: '4px',
+                              marginLeft: '0.5em'
                             }}></span>
                           </>
                         )}
@@ -569,7 +715,7 @@ export default function App() {
                       danger 
                       icon={<DeleteOutlined />} 
                       onClick={clearCanvas}
-                      disabled={memoryAnswers.length < n}
+                      disabled={memoryAnswers.length < n || isSubmitting || showJudgment || pendingJudgment}
                     >
                       消す
                     </Button>
@@ -577,8 +723,8 @@ export default function App() {
                       type="primary" 
                       icon={<SendOutlined />} 
                       onClick={submitAnswer}
-                      disabled={memoryAnswers.length < n}
-                      style={{ opacity: memoryAnswers.length < n ? 0.5 : 1 }}
+                      disabled={memoryAnswers.length < n || isSubmitting || showJudgment || pendingJudgment}
+                      style={{ opacity: (memoryAnswers.length < n || isSubmitting || showJudgment || pendingJudgment) ? 0.5 : 1 }}
                     >
                       送信
                     </Button>
