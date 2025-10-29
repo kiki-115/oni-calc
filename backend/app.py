@@ -5,12 +5,13 @@ from fastapi.responses import JSONResponse
 import io
 import os
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 import torch
 import torch.nn.functional as F
 
 # 必要に応じて models.inference の関数を使う場合は調整してください
 from models.inference import load_model  # , preprocess_for_digit, predict_digit
+from utils.preprocessing import preprocess_png_like_mnist
 
 app = FastAPI(
     title="Oni-Calc API",
@@ -30,62 +31,6 @@ app.add_middleware(
 # グローバル変数でモデルを保持
 model = None
 device = None
-
-# -------------------------
-#  前処理：MNIST準拠の整形
-# -------------------------
-def preprocess_png_like_mnist(png_bytes: bytes) -> torch.Tensor:
-    """
-    RGBA -> 白合成 -> グレースケール -> 反転(白字) -> BBox切出 ->
-    長辺20pxへ等比縮小 -> 28x28パディング -> 重心センタリング -> [0,1]Tensor (1,1,28,28)
-    """
-    # 1) 読み込み & 白背景合成 -> グレースケール
-    img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-    bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-    img = Image.alpha_composite(bg, img).convert("L")  # 8bit gray
-
-    # 2) MNISTは黒地に白字想定なので反転（白地黒字→黒地白字）
-    img = ImageOps.invert(img)
-    arr = np.array(img, dtype=np.uint8)
-
-    # 3) 前景のBBox（0より明るい画素を前景）
-    ys, xs = np.where(arr > 0)
-    if len(xs) == 0:
-        # 何も書いてない場合
-        x = np.zeros((1, 1, 28, 28), dtype=np.float32)
-        return torch.from_numpy(x)
-
-    ymin, ymax = ys.min(), ys.max()
-    xmin, xmax = xs.min(), xs.max()
-    crop = arr[ymin:ymax + 1, xmin:xmax + 1]
-
-    # 4) 長辺を20pxに等比縮小（BICUBIC）
-    h, w = crop.shape
-    scale = 20.0 / max(h, w)
-    new_w = max(1, int(round(w * scale)))
-    new_h = max(1, int(round(h * scale)))
-    crop_img = Image.fromarray(crop).resize((new_w, new_h), Image.BICUBIC)
-
-    # 5) 28x28の黒キャンバスに中央配置
-    canvas = Image.new("L", (28, 28), 0)
-    ox = (28 - new_w) // 2
-    oy = (28 - new_h) // 2
-    canvas.paste(crop_img, (ox, oy))
-
-    # 6) 重心センタリング（1px単位の整数シフト）
-    a = np.array(canvas, dtype=np.float32)
-    y_idx, x_idx = np.mgrid[0:28, 0:28]
-    mass = a.sum() + 1e-6
-    cx = (a * x_idx).sum() / mass
-    cy = (a * y_idx).sum() / mass
-    sx = int(round(14 - cx))
-    sy = int(round(14 - cy))
-    a = np.roll(np.roll(a, sy, axis=0), sx, axis=1)
-
-    # 7) 0–1へ正規化 & (1,1,28,28)
-    a = (a / 255.0).astype(np.float32)
-    a = a[None, None, :, :]
-    return torch.from_numpy(a)
 
 def run_model_logits(x_1x1x28x28: torch.Tensor) -> torch.Tensor:
     """
@@ -127,18 +72,6 @@ async def startup_event():
     except Exception as e:
         print(f"モデルロードエラー: {e}")
         raise e
-
-@app.get("/")
-async def root():
-    return {"message": "Oni-Calc API is running!", "status": "healthy"}
-
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "model_loaded": model is not None,
-        "device": str(device) if device else None
-    }
 
 @app.post("/recognize")
 async def recognize_digit(file: UploadFile = File(...)):

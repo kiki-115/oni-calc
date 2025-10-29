@@ -23,59 +23,133 @@ Oni-Calcは、手書き数字認識技術を活用した記憶力トレーニン
 
 ## 技術構成
 
-### サーバー側
-- **手書き数字認識**: PyTorchベースのニューラルネットワーク
-- **MNISTデータセット**: 学習済みモデル（`model.pt`）
-- **推論API**: 手書き画像を受け取り、認識結果を返す
+### サーバー側（Backend）
+- **フレームワーク**: FastAPI, Python
 
-### クライアント側
-- **ゲームロジック**: 問題生成、記憶管理、スコア計算
-- **手書き入力**: Canvas APIを使用した手書き数字入力
-- **UI/UX**: 直感的なゲームインターフェース
+### クライアント側（Frontend）
+- **フレームワーク**: React 19.2.0
+- **UIライブラリ**: Ant Design 5.27.6
+- **手書き入力**: Canvas API
 
-## ファイル構成
+### 機械学習（ML Training & Inference）
+- CNNをPyTorchを用いて実装。
+- **学習**:
+  - **スクリプト**: `ml-training/make_model.py`
+  - **データセット**: MNIST
+  - **出力**: 学習済みモデル（`backend/models/model.pt`）
+- **推論**:
+  - **推論ロジック**: `backend/models/inference.py` + `backend/app.py`
+  - **画像前処理**: `backend/utils/preprocessing.py`（`preprocess_png_like_mnist`関数）
+    - 黒背景・白文字への反転（MNIST互換のため）
+    - バウンディングボックス切出し
+    - 長辺20pxへの等比縮小
+    - 28×28パディング & 重心センタリング
+    - 0–1正規化
 
+## セットアップ
+
+### 前提条件
+- Python 3.11以上
+- Node.js 16以上
+- npm または yarn
+
+### バックエンドのセットアップ
+
+1. Python仮想環境を作成（推奨）
+```bash
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 ```
-oni-calc/
-├── make_model.py      # ニューラルネットワーク学習スクリプト
-├── infer_digits.py    # 手書き数字認識推論スクリプト
-├── model.pt          # 学習済みモデル
-├── tests/            # テスト用画像
-│   ├── image1.png
-│   ├── image3.png
-│   ├── image5.png
-│   └── image9.png
-└── Readme.md         # このファイル
+
+2. 依存関係のインストール
+```bash
+cd backend
+pip install -r requirements.txt
 ```
+
+3. バックエンドサーバーの起動
+```bash
+python app.py
+```
+
+   デフォルトで `http://0.0.0.0:8000` で起動します。
+
+### フロントエンドのセットアップ
+
+1. 依存関係のインストール
+```bash
+cd frontend
+npm install
+```
+
+2. 開発サーバーの起動
+```bash
+npm start
+```
+
+デフォルトで `http://localhost:3000` で起動します。
+
+### モデルの学習
+
+モデルを再学習する場合：
+
+```bash
+cd ml-training
+pip install -r requirements.txt
+python make_cnn_model.py
+```
+
+学習済みモデルは `model.pt` に保存されます。
 
 ## 使用方法
 
-### モデル学習
-```bash
-python make_model.py
+1. **バックエンドサーバーを起動**
+   ```bash
+   cd backend
+   python app.py
+   ```
+
+2. **フロントエンドを起動**
+   ```bash
+   cd frontend
+   npm start
+   ```
+
+3. **ブラウザでアクセス**
+   - `http://localhost:3000` にアクセス
+   - ゲームを開始し、計算問題に答えます
+
+## API仕様
+
+### エンドポイント
+
+#### `POST /recognize`
+手書き数字画像を認識するメインエンドポイント
+
+**パラメータ:**
+- `file` (UploadFile, required): PNG形式の画像ファイル（最大10MB）
+
+**レスポンス例（成功時）:**
+```json
+{
+  "success": true,
+  "digit": 7,
+  "confidence": 0.987,
+  "top3": [
+    {"digit": 7, "prob": 0.987},
+    {"digit": 1, "prob": 0.008},
+    {"digit": 9, "prob": 0.003}
+  ],
+  "message": "認識結果: 7 (信頼度: 0.987)",
+}
 ```
 
-### 手書き数字認識テスト
-```bash
-python infer_digits.py --model model.pt --image tests/image1.png
-```
+**レスポンス:**
+- `success`: 処理が成功したかどうか（boolean）
+- `digit`: 認識された数字（0-9）
+- `confidence`: 認識の信頼度（0.0-1.0）
+- `top3`: 上位3つの候補（数字と確率のペア）
+- `message`: 人間が読める形式のメッセージ
 
-## 今後の開発予定
 
-- [ ] Webアプリケーションのフロントエンド実装
-- [ ] 手書き数字認識APIサーバーの構築
-- [ ] ゲームロジックの実装（問題生成、記憶管理）
-- [ ] スコアシステムとランキング機能
-- [ ] 難易度調整（nの値、計算の複雑さ）
 
-## 技術スタック
-
-- **フロントエンド**: React + JavaScript + Canvas
-- **バックエンド**: Python + FastAPI
-- **機械学習**: PyTorch, MNIST
-- **画像処理**: OpenCV, PIL
-- **デプロイ**: Vercel (フロント + API統合)
-
----
-
-このプロジェクトは、機械学習技術とゲームデザインを組み合わせた、脳トレアプリケーションです。
