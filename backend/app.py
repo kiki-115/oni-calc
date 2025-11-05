@@ -9,8 +9,7 @@ from PIL import Image
 import torch
 import torch.nn.functional as F
 
-# 必要に応じて models.inference の関数を使う場合は調整してください
-from models.inference import load_model  # , preprocess_for_digit, predict_digit
+from models.inference import load_model
 from utils.preprocessing import preprocess_png_like_mnist
 
 app = FastAPI(
@@ -19,31 +18,23 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS設定（フロントエンドからのアクセスを許可）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 本番では特定ドメインに絞ってください
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# グローバル変数でモデルを保持
 model = None
 device = None
 
 def run_model_logits(x_1x1x28x28: torch.Tensor) -> torch.Tensor:
-    """
-    モデルがCNN/MLPどちらでも動くように、順に試す。
-    1) まず (N,1,28,28) のまま forward
-    2) ダメなら flatten して (N,784)
-    """
-    # 1) CNN/汎用パス
+    # CNN/MLP両対応
     try:
         return model(x_1x1x28x28)
     except Exception:
         pass
-    # 2) MLPパス（flatten）
     n = x_1x1x28x28.size(0)
     x_flat = x_1x1x28x28.view(n, -1)
     return model(x_flat)
@@ -59,7 +50,7 @@ def topk_from_logits(logits: torch.Tensor, k: int = 3):
 
 @app.on_event("startup")
 async def startup_event():
-    """サーバー起動時にモデルをロード"""
+    # モデルロード
     global model, device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_path = "models/model.pt"
@@ -75,21 +66,16 @@ async def startup_event():
 
 @app.post("/recognize")
 async def recognize_digit(file: UploadFile = File(...)):
-    """
-    手書き数字画像を認識するAPI
-    Returns: JSON（digit, confidence, top3）
-    """
     if model is None:
         raise HTTPException(status_code=500, detail="モデルがロードされていません")
 
     try:
-        # --- 読み込み & サイズ検査（10MB） ---
         contents = await file.read()
         size_bytes = len(contents)
         if size_bytes > 10 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="ファイルサイズが大きすぎます（10MB制限）")
 
-        # --- 画像として開けるか（content_typeに依存しすぎない） ---
+        # 画像検証
         try:
             img_probe = Image.open(io.BytesIO(contents))
             mode_hint = img_probe.mode
@@ -97,11 +83,10 @@ async def recognize_digit(file: UploadFile = File(...)):
         except Exception:
             raise HTTPException(status_code=400, detail="画像ファイルをアップロードしてください")
 
-        # --- MNIST準拠の前処理 ---
-        x = preprocess_png_like_mnist(contents)  # (1,1,28,28), [0,1]
-        x = x.to(device)
+        # 前処理
+        x = preprocess_png_like_mnist(contents).to(device)
 
-        # --- 推論 ---
+        # 推論
         with torch.no_grad():
             logits = run_model_logits(x)
 
@@ -114,11 +99,10 @@ async def recognize_digit(file: UploadFile = File(...)):
             "confidence": float(conf),
             "top3": result_top3,
             "message": f"認識結果: {int(pred)} (信頼度: {conf:.3f})",
-            "debug": {
+                "debug": {
                 "bytes": size_bytes,
                 "image_size": [int(w_hint), int(h_hint)],
-                "image_mode": str(mode_hint),
-                "note": "前処理=反転/切出/20px/28パッド/重心/0-1"
+                "image_mode": str(mode_hint)
             }
         })
 

@@ -10,7 +10,6 @@ import { SendOutlined, DeleteOutlined, UpOutlined, DownOutlined, HomeOutlined, Q
 const { Header, Content } = Layout;
 const { Title, Text } = Typography;
 
-/** 0–9 に収まる一桁演算のみ生成（＋は a+b<=9、−は a>=b） */
 function generateProblem() {
   const op = Math.random() < 0.5 ? '+' : '-';
   while (true) {
@@ -25,48 +24,44 @@ function generateProblem() {
 }
 
 export default function App() {
-  // AntD v5: messageはAppコンテキストから取得
   const { message } = AntdApp.useApp();
 
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentProblem, setCurrentProblem] = useState(null);
-  const [memoryAnswers, setMemoryAnswers] = useState([]); // 末尾が最新
+  const [memoryAnswers, setMemoryAnswers] = useState([]);
   const [gameStarted, setGameStarted] = useState(false);
-  const [gameFinished, setGameFinished] = useState(false); // ゲーム終了フラグ
+  const [gameFinished, setGameFinished] = useState(false);
   const [n, setN] = useState(3);
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
   
-  // 問題履歴を管理（表示用）
-  const [problemHistory, setProblemHistory] = useState([]); // 末尾が最新
-  const [questionNumber, setQuestionNumber] = useState(0); // ゲーム全体の通し番号
-  const [showJudgment, setShowJudgment] = useState(false); // 判定を表示するか
-  const [pendingJudgment, setPendingJudgment] = useState(null); // 判定中の問題
-  const [isSubmitting, setIsSubmitting] = useState(false); // 送信中フラグ
-  const [hintModalVisible, setHintModalVisible] = useState(false); // ヒントモーダルの表示状態
+  const [problemHistory, setProblemHistory] = useState([]);
+  const [questionNumber, setQuestionNumber] = useState(0);
+  const [showJudgment, setShowJudgment] = useState(false);
+  const [pendingJudgment, setPendingJudgment] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hintModalVisible, setHintModalVisible] = useState(false);
   
-  // ゲームタイマー関連
   const [startTime, setStartTime] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [answeredCount, setAnsweredCount] = useState(0); // 解答済み問題数
-  const [wrongCount, setWrongCount] = useState(0); // 間違えた問題数
-  const [finalScore, setFinalScore] = useState(null); // 最終スコア
-  const [finalTime, setFinalTime] = useState(null); // 解答時間
-  const [answerHistory, setAnswerHistory] = useState([]); // 回答結果の履歴（o=xの配列）
+  const [answeredCount, setAnsweredCount] = useState(0);
+  const [wrongCount, setWrongCount] = useState(0);
+  const [finalScore, setFinalScore] = useState(null);
+  const [finalTime, setFinalTime] = useState(null);
+  const [answerHistory, setAnswerHistory] = useState([]);
 
-  /** ゲーム開始 */
   const startGame = () => {
     const p = generateProblem();
     setGameStarted(true);
     setGameFinished(false);
     setCurrentProblem(p);
-    setMemoryAnswers([]);        // 最初は覚えるだけ
-    setProblemHistory([p]);       // 問題履歴を初期化（最初の問題のみ）
-    setQuestionNumber(1);         // 1問目から開始
+    setMemoryAnswers([]);
+    setProblemHistory([p]);
+    setQuestionNumber(1);
     setShowJudgment(false);
     setPendingJudgment(null);
     setIsSubmitting(false);
-    setStartTime(null);           // 「はじめ！！」のタイミングで開始
+    setStartTime(null);
     setElapsedTime(0);
     setAnsweredCount(0);
     setWrongCount(0);
@@ -82,33 +77,26 @@ export default function App() {
       
       const canvas = canvasRef.current;
       const cssW = 400, cssH = 400;
-      canvas.width = Math.floor(cssW * dpr);   // 内部ピクセル
+      canvas.width = Math.floor(cssW * dpr);
       canvas.height = Math.floor(cssH * dpr);
       canvas.style.width = cssW + 'px';
       canvas.style.height = cssH + 'px';
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      console.log('Canvas initialized:', {
-        width: canvas.width,
-        height: canvas.height,
-        aspectRatio: canvas.width / canvas.height
-      });
     }, 100);
   };
 
-  /** ゲームをリセットして最初に戻す */
   const restartGame = () => {
     const p = generateProblem();
     setCurrentProblem(p);
-    setMemoryAnswers([]);        // 最初は覚えるだけ
-    setProblemHistory([p]);       // 問題履歴を初期化（最初の問題のみ）
-    setQuestionNumber(1);         // 1問目から開始
+    setMemoryAnswers([]);
+    setProblemHistory([p]);
+    setQuestionNumber(1);
     setShowJudgment(false);
     setPendingJudgment(null);
     setIsSubmitting(false);
-    setStartTime(null);           // 「はじめ！！」のタイミングで開始
+    setStartTime(null);
     setElapsedTime(0);
     setAnsweredCount(0);
     setWrongCount(0);
@@ -116,7 +104,6 @@ export default function App() {
     setFinalScore(null);
     setAnswerHistory([]);
     
-    // Canvas初期化
     setTimeout(() => {
       if (!canvasRef.current) {
         console.error('Canvas ref is null');
@@ -125,26 +112,20 @@ export default function App() {
       
       const canvas = canvasRef.current;
       const cssW = 400, cssH = 400;
-      canvas.width = Math.floor(cssW * dpr);   // 内部ピクセル
+      canvas.width = Math.floor(cssW * dpr);
       canvas.height = Math.floor(cssH * dpr);
       canvas.style.width = cssW + 'px';
       canvas.style.height = cssH + 'px';
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      console.log('Canvas initialized:', {
-        width: canvas.width,
-        height: canvas.height,
-        aspectRatio: canvas.width / canvas.height
-      });
     }, 100);
     
     message.info('ゲームをリセットしました');
   };
 
-  /** CSS座標 → 内部ピクセル座標に変換 */
   const getCanvasPoint = (e) => {
+    // 座標変換
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -155,7 +136,6 @@ export default function App() {
     };
   };
 
-  /** Canvas描画（Pointer Events） */
   const startDrawing = (e) => {
     e.preventDefault();
     if (!canvasRef.current || memoryAnswers.length < n) return;
@@ -163,7 +143,7 @@ export default function App() {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
 
-    ctx.lineWidth = 10 * dpr;     // DPI対応
+    ctx.lineWidth = 10 * dpr;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = '#000';
@@ -197,7 +177,6 @@ export default function App() {
     if (!canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    // 内部ピクセル単位で白塗り
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -206,14 +185,11 @@ export default function App() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   };
 
-  /** 数字認識 API */
   const recognizeDigit = async () => {
     if (!canvasRef.current) return null;
     const canvas = canvasRef.current;
 
-    // デバッグ: 実サイズ(属性)と見た目(CSS)を確認
-    const rect = canvas.getBoundingClientRect();
-
+    // API送信
     const dataURL = canvas.toDataURL('image/png');
     const res = await fetch(dataURL);
     const blob = await res.blob();
@@ -234,24 +210,21 @@ export default function App() {
     }
   };
 
-  /** 送信 */
   const submitAnswer = async () => {
-    // 二重実行防止: 送信中、判定表示中、記憶中は実行不可
     if (!currentProblem || memoryAnswers.length < n || isSubmitting || showJudgment || pendingJudgment) return;
 
-    setIsSubmitting(true); // 送信開始
+    setIsSubmitting(true);
 
     const recognizedDigit = await recognizeDigit();
     if (recognizedDigit === null) {
-      setIsSubmitting(false); // エラー時はフラグを下ろす
+      setIsSubmitting(false);
       return;
     }
 
-    // n個前の問題を取得（履歴の最初の問題）
+    // n個前の問題の答えと比較
     const targetProblem = problemHistory[0];
     const targetAnswer = memoryAnswers[memoryAnswers.length - n];
     
-    // 推論結果を問題履歴に反映
     const newHistory = [...problemHistory];
     newHistory[0] = {
       ...problemHistory[0],
@@ -260,19 +233,16 @@ export default function App() {
     };
     setProblemHistory(newHistory);
     
-    // 推論結果を即座に反映（まだ判定は表示しない）
     setPendingJudgment({ 
       recognizedAnswer: recognizedDigit, 
       isCorrect: recognizedDigit === targetAnswer 
     });
     
-    // 判定を0.2秒遅延して表示
     setTimeout(() => {
       setShowJudgment(true);
       
       const isCorrect = recognizedDigit === targetAnswer;
       
-      // 回答履歴に追加
       setAnswerHistory((prev) => [...prev, isCorrect ? 'o' : 'x']);
       
       if (!isCorrect) {
@@ -281,35 +251,34 @@ export default function App() {
       
       setAnsweredCount((prev) => prev + 1);
       
-      // 40問解答したらゲーム終了
+      // 40問で終了
       const currentAnswered = answeredCount + 1;
       if (currentAnswered >= 40) {
         const localFinalTime = (Date.now() - startTime) / 1000;
-        setFinalTime(localFinalTime); // 0.1秒単位で取得
+        setFinalTime(localFinalTime);
         const finalWrongCount = wrongCount + (isCorrect ? 0 : 1);
-        const calculatedScore = Number((localFinalTime + finalWrongCount * 8).toFixed(1)); // 0.1秒単位で計算
+        const calculatedScore = Number((localFinalTime + finalWrongCount * 8).toFixed(1));
         setFinalScore(calculatedScore);
         setGameFinished(true);
-        setIsSubmitting(false); // ゲーム終了時にフラグを下ろす
+        setIsSubmitting(false);
         clearCanvas();
         return;
       }
       
-      // さらに0.3秒後に次の問題へ
+      // 次の問題へ
       setTimeout(() => {
         setPendingJudgment(null);
         setShowJudgment(false);
-        setIsSubmitting(false); // 次の問題へ進む時にフラグを下ろす
+        setIsSubmitting(false);
         
         const newProblem = generateProblem();
         setMemoryAnswers((prev) => [...prev, currentProblem.answer]);
         setCurrentProblem(newProblem);
-        setQuestionNumber((prev) => prev + 1); // 問題番号をインクリメント
-        // 履歴の先頭を削除し、最後尾に追加（n個固定）
+        setQuestionNumber((prev) => prev + 1);
         setProblemHistory((prev) => {
           const updated = [...prev];
-          updated.shift(); // 最古の問題を削除
-          updated.push(newProblem); // 新しい問題を追加
+          updated.shift();
+          updated.push(newProblem);
           return updated;
         });
         clearCanvas();
@@ -317,14 +286,14 @@ export default function App() {
     }, 200);
   };
 
-  // 「はじめ！！」のタイミングでタイマーを開始
+  // タイマー開始
   useEffect(() => {
     if (!gameStarted || gameFinished || memoryAnswers.length !== n || startTime !== null) return;
     
     setStartTime(Date.now());
   }, [gameStarted, gameFinished, memoryAnswers.length, n, startTime]);
 
-  // 経過時間を更新（0.1秒ごと）
+  // 経過時間更新
   useEffect(() => {
     if (!gameStarted || gameFinished || !startTime) return;
     
@@ -337,7 +306,7 @@ export default function App() {
     return () => clearInterval(timer);
   }, [gameStarted, gameFinished, startTime]);
 
-  // 記憶中は1.5秒ごとに自動で問題が切り替わる
+  // 記憶フェーズ（自動問題切り替え）
   useEffect(() => {
     if (!gameStarted || memoryAnswers.length >= n) return;
 
@@ -549,9 +518,7 @@ export default function App() {
 
                 <Divider style={{ borderColor: '#1f2937' }} />
 
-                {/* 2つの式を表示：現在の問題 + n個前の問題 */}
                 <div style={{ marginBottom: 24 }}>
-                  {/* 上方向の点線 */}
                   {problemHistory.length > n && (
                     <div style={{ 
                       textAlign: 'center', 
@@ -565,7 +532,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* 現在の問題（表示） */}
                   <div style={{ marginBottom: 16, padding: 16, background: '#1f2937', borderRadius: 8 }}>
                     <Text style={{ color: '#9ca3af' }}>
                       {questionNumber}問目
@@ -580,7 +546,6 @@ export default function App() {
                     </Title>
                   </div>
 
-                  {/* 中間の点線 */}
                   {problemHistory.length > n && (
                     <div style={{ 
                       textAlign: 'center', 
@@ -594,7 +559,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* n個前の問題（問題履歴の最初）- i番目をマスク */}
                   {problemHistory.length > n ? (
                     <div style={{ 
                       marginBottom: 16, 
@@ -618,7 +582,6 @@ export default function App() {
                         style={{ color: '#fff', margin: 0 }}
                       >
                         {pendingJudgment ? (
-                          // 文字を埋めたらマスクを外して式を表示
                           <>
                             {problemHistory[0]?.num1} {problemHistory[0]?.operation} {problemHistory[0]?.num2} = 
                             <span style={{
@@ -637,7 +600,6 @@ export default function App() {
                             </span>
                           </>
                         ) : (
-                          // まだ記入していない時はマスク表示
                           <>
                             ? <span style={{ fontSize: '0.7em' }}>?</span> ? = 
                             <span style={{
@@ -668,7 +630,6 @@ export default function App() {
                     </Text>
                   )}
 
-                  {/* 下方向の点線 */}
                   {problemHistory.length > n && (
                     <div style={{ 
                       textAlign: 'center', 
@@ -702,8 +663,7 @@ export default function App() {
                         onPointerUp={stopDrawing}
                         onPointerLeave={stopDrawing}
                         onContextMenu={(e) => e.preventDefault()}
-                        style={{ touchAction: 'none' }}  // タッチデバイスのスクロール抑止
-                        // width/height は useEffect で設定（HiDPI）
+                        style={{ touchAction: 'none' }}
                       />
                     </div>
                   </div>
@@ -732,7 +692,6 @@ export default function App() {
           </Row>
         )}
 
-        {/* ヒントモーダル */}
         <Modal
           title="ヒント"
           open={hintModalVisible}

@@ -9,15 +9,11 @@ import cv2
 from .model import MyCNNModel
 
 def load_model(model_path: str, device: torch.device, input_size: int | None = None):
-    """
-    .pt が TorchScript（torch.jit.load）または nn.Module（torch.load）に対応。
-    どちらでも試して成功した方を返す。
-    """
     p = Path(model_path)
     if not p.exists():
         raise FileNotFoundError(f"Model not found: {p}")
 
-    # 1) TorchScript (最優先: 依存なしでロードできる)
+    # TorchScript
     try:
         m = torch.jit.load(str(p), map_location=device)
         m.eval()
@@ -25,14 +21,13 @@ def load_model(model_path: str, device: torch.device, input_size: int | None = N
     except Exception:
         pass
 
-    # 2) nn.Module が丸ごと保存されている場合
-    # PyTorch 2.6 以降は既定で weights_only=True のため、明示的に False にする
+    # nn.Module
     obj = torch.load(str(p), map_location=device, weights_only=False)
     if isinstance(obj, torch.nn.Module):
         obj.eval()
         return obj
 
-    # 3) state_dict の場合は MyModel で復元を試す
+    # state_dict
     if isinstance(obj, dict):
         if input_size is None:
             raise RuntimeError(
@@ -43,38 +38,30 @@ def load_model(model_path: str, device: torch.device, input_size: int | None = N
         model.eval()
         return model
 
-    # それ以外
     raise RuntimeError(
         "モデルのロードに失敗しました。TorchScript/nn.Module/state_dict のいずれにも該当しません。"
     )
 
 def preprocess_for_digit(img_path: str, size: int, channels: int, keep_ratio=True):
-    """
-    実運用での取りやすい前処理：
-      - グレースケール
-      - 背景が白・文字が黒なら自動反転（MNIST 互換: 黒背景に白文字がデフォ）
-      - 28x28 等にリサイズ（余白パディングして中央寄せ）
-      - 0-1 正規化 & （MNIST なら）標準化
-    """
-    # 読み込み（PIL）
-    img = Image.open(img_path).convert("L")  # grayscale
+    img = Image.open(img_path).convert("L")
 
-    # 自動反転（平均が明るい＝白背景っぽい → 反転して「黒背景・白文字」へ）
+    # 反転
     if np.array(img).mean() > 127:
         img = ImageOps.invert(img)
 
-    # OpenCV で軽い二値化（ノイズ抑制 & コントラスト改善）
+    # 二値化
     arr = np.array(img)
     arr = cv2.GaussianBlur(arr, (3,3), 0)
     _, arr = cv2.threshold(arr, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
 
-    # 文字の外接矩形でクロップ（空白を削る）
+    # クロップ
     ys, xs = np.where(arr > 0)
     if len(xs) > 0 and len(ys) > 0:
         x1, x2 = xs.min(), xs.max()
         y1, y2 = ys.min(), ys.max()
         arr = arr[y1:y2+1, x1:x2+1]
-    # 正方形キャンバスにパディングして中央寄せ
+    
+    # パディング
     h, w = arr.shape
     side = max(h, w)
     canvas = np.zeros((side, side), dtype=np.uint8)
@@ -86,23 +73,23 @@ def preprocess_for_digit(img_path: str, size: int, channels: int, keep_ratio=Tru
     pil = Image.fromarray(canvas)
     pil = pil.resize((size, size), Image.BICUBIC)
 
-    # Tensor 化
-    x = np.array(pil).astype(np.float32) / 255.0  # [0,1]
-    x = x[None, ...]  # (1,H,W)
+    # 正規化
+    x = np.array(pil).astype(np.float32) / 255.0
+    x = x[None, ...]
     if channels == 1:
         pass
     elif channels == 3:
-        x = np.repeat(x, 3, axis=0)  # (3,H,W)
+        x = np.repeat(x, 3, axis=0)
     else:
         raise ValueError("channels は 1 または 3 を指定してください")
-    x = torch.from_numpy(x).unsqueeze(0)  # (1,C,H,W)
+    x = torch.from_numpy(x).unsqueeze(0)
     print(torch.max(x), torch.min(x))
     return x
 
 def predict_digit(model, img_path: str, device: torch.device, size: int, channels: int, topk: int=3):
     x = preprocess_for_digit(img_path, size=size, channels=channels).to(device)
     with torch.inference_mode():
-        logits = model(x)  # 期待: (1,10)
+        logits = model(x)
         if isinstance(logits, (list, tuple)):
             logits = logits[0]
         probs = F.softmax(logits, dim=-1)
